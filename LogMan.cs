@@ -26,7 +26,7 @@ namespace Wima.Log
 
         public static LogMode LogModes { get; set; } = LogMode.Console | LogMode.CommonLog;
 
-        
+
         /// <summary>
         /// 内存日志缓冲。
         /// </summary>
@@ -92,7 +92,7 @@ namespace Wima.Log
             }
 
             //添加日志到全局静态列表
-            Loggers.Add(this);
+            lock (logLock) { Loggers.Add(this); }
 
             Info("LogMan创建成功!");
         }
