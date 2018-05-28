@@ -65,14 +65,11 @@ namespace Wima.Log
 
         public LogMan(string logName, LogLevel logLevel, bool showlevel, bool showDateTime, bool showLogName, string dateTimeFormat) : base(logName, logLevel, showlevel, showDateTime, showLogName, dateTimeFormat)
         {
-            LogPath = LogRoot + logName + "_" + DateTime.Now.ToString(LogFileNameTimeFormat);
+            LogPath = LogRoot + logName + "_" + DateTime.Now.ToString(LogFileNameTimeFormat) + ".log";
 
             if (LogModes.HasFlag(LogMode.CommonLog))
             {
-                try
-                {
-                    CommonLogger = GetLogger(logName);
-                }
+                try { CommonLogger = GetLogger(logName); }
                 catch (Exception ex)
                 {
                     LogModes = (LogModes ^ LogMode.CommonLog) | LogMode.Disk;
@@ -169,19 +166,15 @@ namespace Wima.Log
             string logLine = "[" + DateTime.Now.ToString("yyMMdd-HH:mm:ss.fff") + "]" + logText + "\r\n" + methodName;
             LogBuf = LogBuf.Insert(0, logLine);
 
-            if (LogModes.HasFlag(LogMode.Disk))
+            if (LogModes.HasFlag(LogMode.Disk) && LogStreamWriter != null)
+            {
                 try
                 {
-                    lock (logLock)
-                    {
-                        LogStreamWriter.Write(logLine);
-                    }
+                    lock (logLock) { LogStreamWriter.Write(logLine); }
 
                 }
-                catch (Exception excpt)
-                {
-                    LogBuf.Insert(0, "!!!日志文件写入错误：" + excpt.Message);
-                }
+                catch (Exception excpt) { LogBuf.Insert(0, "!!!日志文件写入错误：" + excpt.Message); }
+            }
 
             if (LogModes.HasFlag(LogMode.Console)) Console.Write(logLine);
         }
