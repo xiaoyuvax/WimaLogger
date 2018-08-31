@@ -38,7 +38,7 @@ namespace Wima.Log
         /// <summary>
         /// 日志默认路径(当前应用域的基目录)
         /// </summary>
-        public string LogRoot = AppDomain.CurrentDomain.BaseDirectory + @"\Logs\";
+        public string LogRoot = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory + @"\Logs\");
 
         /// <summary>
         /// 日志写线程锁
@@ -81,6 +81,7 @@ namespace Wima.Log
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
                 LogStreamWriter = LogModes.HasFlag(LogMode.Disk) ? new StreamWriter(LogPath, true) { AutoFlush = true } : null;
+
             }
             catch (Exception ex)
             {
@@ -100,14 +101,10 @@ namespace Wima.Log
         public LogMan(Type type) : this(type.Name, LogLevel.All, true, true, true, LogFileNameTimeFormat)
         { }
 
-        public LogMan(Object obj) : this(obj.GetType().ToString(), LogLevel.All, true, true, true, LogFileNameTimeFormat)
+        public LogMan(object obj) : this(obj.GetType().ToString(), LogLevel.All, true, true, true, LogFileNameTimeFormat)
         { }
 
-        private static ILog GetLogger(string key)
-        {
-            ILog log = LogManager.GetLogger(key);
-            return log;
-        }
+        private static ILog GetLogger(string key) => LogManager.GetLogger(key);
 
         public void Error(Exception ex)
         {
@@ -149,9 +146,7 @@ namespace Wima.Log
             };
 
 
-            string logText =
-                "[" + level.ToString() + "]{" + this.Name + "}" +
-                message.ToString() +
+            string logText = "[" + level.ToString() + "]{" + this.Name + "}" + message.ToString() +
                 (ex == null ? "" : " - " + ex.Message + " - " + ex.InnerException?.Message);
 
             string methodName = "";
@@ -170,8 +165,10 @@ namespace Wima.Log
             {
                 try
                 {
-                    lock (logLock) { LogStreamWriter.Write(logLine); }
-
+                    lock (logLock)
+                    {
+                        LogStreamWriter.Write(logLine);
+                    }
                 }
                 catch (Exception excpt) { LogBuf.Insert(0, "!!!日志文件写入错误：" + excpt.Message); }
             }
