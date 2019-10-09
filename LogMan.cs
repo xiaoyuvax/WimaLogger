@@ -38,7 +38,7 @@ namespace Wima.Log
         /// <summary>
         /// 日志默认路径(当前应用域的基目录)
         /// </summary>
-        public string LogRoot = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory + @"\Logs\");
+        public string LogRoot = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory + Path.DirectorySeparatorChar + @"Logs" + Path.DirectorySeparatorChar);
 
         /// <summary>
         /// 日志写线程锁
