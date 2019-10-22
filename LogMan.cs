@@ -12,7 +12,7 @@ namespace Wima.Log
     public enum LogMode : byte
     {
         CommonLog = 0b1,
-        Disk = 0b10,
+        Native = 0b10,
         Console = 0b100,
         StackTrace = 0b1000,  //记录堆栈
         Verbose = 0b10000     //高级日志
@@ -38,7 +38,7 @@ namespace Wima.Log
         /// <summary>
         /// 日志默认路径(当前应用域的基目录)
         /// </summary>
-        public string LogRoot = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory + Path.DirectorySeparatorChar + @"Logs" + Path.DirectorySeparatorChar);
+        public string LogRoot = Path.GetFullPath(Directory.GetCurrentDirectory() + Path.DirectorySeparatorChar + @"Logs" + Path.DirectorySeparatorChar);
 
         /// <summary>
         /// 日志写线程锁
@@ -72,7 +72,7 @@ namespace Wima.Log
                 try { CommonLogger = GetLogger(logName); }
                 catch (Exception ex)
                 {
-                    LogModes = (LogModes ^ LogMode.CommonLog) | LogMode.Disk;
+                    LogModes = (LogModes ^ LogMode.CommonLog) | LogMode.Native;
                     Info("关闭CommonLog, 打开基本日志系统!", ex);
                 }
             }
@@ -80,7 +80,7 @@ namespace Wima.Log
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
-                LogStreamWriter = LogModes.HasFlag(LogMode.Disk) ? new StreamWriter(LogPath, true) { AutoFlush = true } : null;
+                LogStreamWriter = LogModes.HasFlag(LogMode.Native) ? new StreamWriter(LogPath, true) { AutoFlush = true } : null;
 
             }
             catch (Exception ex)
@@ -161,7 +161,7 @@ namespace Wima.Log
             string logLine = "[" + DateTime.Now.ToString("yyMMdd-HH:mm:ss.fff") + "]" + logText + "\r\n" + methodName;
             LogBuf = LogBuf.Insert(0, logLine);
 
-            if (LogModes.HasFlag(LogMode.Disk) && LogStreamWriter != null)
+            if (LogModes.HasFlag(LogMode.Native) && LogStreamWriter != null)
             {
                 try
                 {
