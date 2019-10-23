@@ -1,7 +1,7 @@
 ﻿using Common.Logging;
 using Common.Logging.Simple;
 using System;
-using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -14,8 +14,8 @@ namespace Wima.Log
         CommonLog = 0b1,
         Native = 0b10,
         Console = 0b100,
-        StackTrace = 0b1000,  //记录堆栈
-        Verbose = 0b10000     //高级日志
+        StackTrace = 0b1000,
+        Verbose = 0b10000
     }
 
 
@@ -28,7 +28,7 @@ namespace Wima.Log
 
 
         /// <summary>
-        /// 内存日志缓冲。
+        /// In-memory buffer of recent log, for quick query of rencent logs.
         /// </summary>
         public string LogBuf { get; set; } = "";
 
@@ -36,31 +36,41 @@ namespace Wima.Log
 
 
         /// <summary>
-        /// 日志默认路径(当前应用域的基目录)
+        /// Log root path
         /// </summary>
         public string LogRoot = Path.GetFullPath(Directory.GetCurrentDirectory() + Path.DirectorySeparatorChar + @"Logs" + Path.DirectorySeparatorChar);
 
         /// <summary>
-        /// 日志写线程锁
+        /// Writing lock,prevent race condition.
         /// </summary>
         private readonly object logLock = new object();
 
         /// <summary>
-        /// 日志文件名日期部分格式
+        /// Date format for log files
         /// </summary>
         public static string LogFileNameTimeFormat { get; } = "yyMMdd_HHmmss";
 
+
         /// <summary>
-        /// 日志路径
+        /// Date format for log lines
+        /// </summary>
+        public static string LogLineTimeFormat { get; } = "yy/MM/dd_HH:mm:ss";
+
+
+        /// <summary>
+        /// Path for current LogMan instance
         /// </summary>
         public string LogPath { get; private set; }
 
         /// <summary>
-        /// 日志流
+        /// LogStream for writing 
         /// </summary>
         private StreamWriter LogStreamWriter { get; set; }
 
-        public static List<LogMan> Loggers { get; private set; } = new List<LogMan>();
+        /// <summary>
+        /// Reggistered loggers
+        /// </summary>
+        public static ConcurrentBag<LogMan> Loggers { get; private set; } = new ConcurrentBag<LogMan>();
 
 
         public LogMan(string logName, LogLevel logLevel, bool showlevel, bool showDateTime, bool showLogName, string dateTimeFormat) : base(logName, logLevel, showlevel, showDateTime, showLogName, dateTimeFormat)
@@ -73,7 +83,7 @@ namespace Wima.Log
                 catch (Exception ex)
                 {
                     LogModes = (LogModes ^ LogMode.CommonLog) | LogMode.Native;
-                    Info("关闭CommonLog, 打开基本日志系统!", ex);
+                    Info("Failure initalizing CommonLog,use native mode instead!", ex);
                 }
             }
 
@@ -85,14 +95,14 @@ namespace Wima.Log
             }
             catch (Exception ex)
             {
-                LogBuf = "无法创建日志文件！改为内存模式！错误信息：" + ex.Message;
+                LogBuf = "Unable to create log files,Console mode only！Error：" + ex.Message;
                 LogModes = LogMode.Console;
             }
 
-            //添加日志到全局静态列表
-            lock (logLock) { Loggers.Add(this); }
+            //Register this Logman instance to a global static Bag
+            Loggers.Add(this);
 
-            Info("LogMan创建成功!");
+            Info($"LogMan is working!");
         }
 
         public LogMan(string Key) : this(Key, LogLevel.All, true, true, true, LogFileNameTimeFormat)
@@ -146,7 +156,7 @@ namespace Wima.Log
             };
 
 
-            string logText = "[" + level.ToString() + "]{" + this.Name + "}" + message.ToString() +
+            string logText = $"[{level.ToString()}]{this.Name}:" + message.ToString() +
                 (ex == null ? "" : " - " + ex.Message + " - " + ex.InnerException?.Message);
 
             string methodName = "";
@@ -157,20 +167,17 @@ namespace Wima.Log
                 methodName = " <- " + methodName + "\r\n\r\n";
             }
 
-            if (LogBuf.Length > DefaultMaxBufferLength) LogBuf = LogBuf.Substring(0, DefaultMaxBufferLength - 2048);
-            string logLine = "[" + DateTime.Now.ToString("yyMMdd-HH:mm:ss.fff") + "]" + logText + "\r\n" + methodName;
+            if (LogBuf.Length > DefaultMaxBufferLength) LogBuf = LogBuf.Remove(DefaultMaxBufferLength - 4096);
+            string logLine = DateTime.Now.ToString(LogLineTimeFormat) + logText + "\r\n" + methodName;
             LogBuf = LogBuf.Insert(0, logLine);
 
             if (LogModes.HasFlag(LogMode.Native) && LogStreamWriter != null)
             {
                 try
                 {
-                    lock (logLock)
-                    {
-                        LogStreamWriter.Write(logLine);
-                    }
+                    lock (logLock) { LogStreamWriter.Write(logLine); }
                 }
-                catch (Exception excpt) { LogBuf.Insert(0, "!!!日志文件写入错误：" + excpt.Message); }
+                catch (Exception excpt) { LogBuf.Insert(0, "!!!Failure writing log stream：" + excpt.Message); }
             }
 
             if (LogModes.HasFlag(LogMode.Console)) Console.Write(logLine);
