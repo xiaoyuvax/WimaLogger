@@ -24,7 +24,7 @@ namespace Wima.Log
 
         private static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
 
-        public static LogMode LogModes { get; set; } = LogMode.Console | LogMode.CommonLog;
+        public static LogMode LogModes { get; set; } = LogMode.Console;
 
 
         /// <summary>
@@ -54,7 +54,7 @@ namespace Wima.Log
         /// <summary>
         /// Date format for log lines
         /// </summary>
-        public static string LogLineTimeFormat { get; } = "yy/MM/dd_HH:mm:ss";
+        public static string LogLineTimeFormat { get; } = "yy-MM-dd_HH:mm:ss";
 
 
         /// <summary>
