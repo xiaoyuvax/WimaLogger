@@ -1,4 +1,5 @@
 ﻿using Common.Logging;
+using Common.Logging.Factory;
 using Common.Logging.Simple;
 using System;
 using System.Collections.Concurrent;
@@ -11,7 +12,7 @@ namespace Wima.Log
     [Flags]
     public enum LogMode : byte
     {
-        None =0,
+        None = 0,
         CommonLog = 0b1,
         Native = 0b10,
         Console = 0b100,
@@ -20,13 +21,17 @@ namespace Wima.Log
     }
 
 
-    public class LogMan : AbstractSimpleLogger
+    public class LogMan : AbstractLogger
     {
 
-        private static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
+        public static string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
+        public static string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd_HH:mm:ss";
+        public static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
+        public static LogMode GlobalLogModes { get; set; } = LogMode.Console;
 
-        public static LogMode LogModes { get; set; } = LogMode.Console;
+        public string Name { get; set; } = "";
 
+        public LogMode LogModes { get; set; }
 
         /// <summary>
         /// In-memory buffer of recent log, for quick query of rencent logs.
@@ -49,13 +54,13 @@ namespace Wima.Log
         /// <summary>
         /// Date format for log files
         /// </summary>
-        public static string LogFileNameTimeFormat { get; } = "yyMMdd_HHmmss";
+        public string LogFileNameTimeFormat { get; set; } = DEFAULT_LOGFILE_NAME_TIME_FORMAT;
 
 
         /// <summary>
         /// Date format for log lines
         /// </summary>
-        public static string LogLineTimeFormat { get; } = "yy-MM-dd_HH:mm:ss";
+        public string LogLineTimeFormat { get; set; } = DEFAULT_LOGLINE_TIME_FORMAT;
 
 
         /// <summary>
@@ -73,32 +78,36 @@ namespace Wima.Log
         /// </summary>
         public static ConcurrentBag<LogMan> Loggers { get; private set; } = new ConcurrentBag<LogMan>();
 
+        public override bool IsTraceEnabled => true;
 
-        public LogMan(string logName, LogLevel logLevel, bool showlevel, bool showDateTime, bool showLogName, string dateTimeFormat) : base(logName, logLevel, showlevel, showDateTime, showLogName, dateTimeFormat)
+        public override bool IsDebugEnabled => true;
+
+        public override bool IsInfoEnabled => true;
+
+        public override bool IsWarnEnabled => true;
+
+        public override bool IsErrorEnabled => true;
+
+        public override bool IsFatalEnabled => true;
+
+        public LogMan(string logName) //LogLevel logLevel, bool showlevel, bool showDateTime, bool showLogName, string dateTimeFormat
         {
-            LogPath = LogRoot + logName + "_" + DateTime.Now.ToString(LogFileNameTimeFormat) + ".log";
+            LogModes = GlobalLogModes;
 
             if (LogModes.HasFlag(LogMode.CommonLog))
             {
                 try { CommonLogger = GetLogger(logName); }
                 catch (Exception ex)
                 {
-                    LogModes = (LogModes ^ LogMode.CommonLog) | LogMode.Native;
+                    LogModes = (GlobalLogModes ^ LogMode.CommonLog) | LogMode.Native;
                     Info("Failure initalizing CommonLog,use native mode instead!", ex);
                 }
             }
 
-            try
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
-                LogStreamWriter = LogModes.HasFlag(LogMode.Native) ? new StreamWriter(LogPath, true) { AutoFlush = true } : null;
+            Name = logName;
 
-            }
-            catch (Exception ex)
-            {
-                LogBuf = "Unable to create log files,Console mode only！Error：" + ex.Message;
-                LogModes = LogMode.Console;
-            }
+            LogStreamWriter = GetLogStreamWriter();
+
 
             //Register this Logman instance to a global static Bag
             Loggers.Add(this);
@@ -106,13 +115,45 @@ namespace Wima.Log
             Info($"LogMan is working!");
         }
 
-        public LogMan(string Key) : this(Key, LogLevel.All, true, true, true, LogFileNameTimeFormat)
+        private StreamWriter GetLogStreamWriter()
+        {
+            //默认为当前的日志写入器
+            StreamWriter writer = LogStreamWriter;
+
+            string nextLogPath = GetNextLogPath();
+            if (LogPath != nextLogPath)
+            {
+                LogPath = nextLogPath;
+                if (LogModes.HasFlag(LogMode.Native))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
+                        writer = new StreamWriter(LogPath, true) { AutoFlush = true };
+                    }
+                    catch (Exception ex)
+                    {
+                        LogBuf = "Unable to create log files,Console mode only！Error：" + ex.Message;
+                        LogModes = LogMode.Console;
+                    }
+                }
+            }
+            return writer;
+
+        }
+
+        private string GetNextLogPath()
+        {
+            return LogRoot + Name + "_" + DateTime.Now.ToString(LogFileNameTimeFormat) + ".log";
+        }
+
+        //public LogMan(string Key) : this(Key) // LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
+        //{ }
+
+        public LogMan(Type type) : this(type.Name) //LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
         { }
 
-        public LogMan(Type type) : this(type.Name, LogLevel.All, true, true, true, LogFileNameTimeFormat)
-        { }
-
-        public LogMan(object obj) : this(obj.GetType().ToString(), LogLevel.All, true, true, true, LogFileNameTimeFormat)
+        public LogMan(object obj) : this(obj.GetType().ToString()) //LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
         { }
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
@@ -157,7 +198,11 @@ namespace Wima.Log
             };
 
 
-            string logText = $"[{level.ToString()}]{this.Name}:" + message.ToString() +
+            var posSep = Name.LastIndexOf(Path.DirectorySeparatorChar) + 1;
+            var logName = Name;
+            if (posSep >= 0) logName = Name.Substring(posSep, Name.Length - posSep);
+
+            string logText = $"[{level.ToString()}]{logName}:" + message.ToString() +
                 (ex == null ? "" : " - " + ex.Message + " - " + ex.InnerException?.Message);
 
             string methodName = "";
@@ -172,11 +217,13 @@ namespace Wima.Log
             string logLine = DateTime.Now.ToString(LogLineTimeFormat) + logText + "\r\n" + methodName;
             LogBuf = LogBuf.Insert(0, logLine);
 
+            //Renew LogStreamWriter in case log path changes
+            LogStreamWriter = GetLogStreamWriter();
             if (LogModes.HasFlag(LogMode.Native) && LogStreamWriter != null)
             {
                 try
                 {
-                    lock (logLock) { LogStreamWriter.Write(logLine); }
+                    lock (LogStreamWriter) { LogStreamWriter.Write(logLine); }
                 }
                 catch (Exception excpt) { LogBuf.Insert(0, "!!!Failure writing log stream：" + excpt.Message); }
             }
