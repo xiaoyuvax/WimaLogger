@@ -202,7 +202,7 @@ namespace Wima.Log
             var logName = Name;
             if (posSep >= 0) logName = Name.Substring(posSep, Name.Length - posSep);
 
-            string logText = $"[{level.ToString()}]{logName}:" + message.ToString() +
+            string logText = $"[{level.ToString()}]{logName}:" + message?.ToString() +
                 (ex == null ? "" : " - " + ex.Message + " - " + ex.InnerException?.Message);
 
             string methodName = "";
@@ -213,9 +213,13 @@ namespace Wima.Log
                 methodName = " <- " + methodName + "\r\n\r\n";
             }
 
-            if (LogBuf.Length > DefaultMaxBufferLength) LogBuf = LogBuf.Remove(DefaultMaxBufferLength - 4096);
             string logLine = DateTime.Now.ToString(LogLineTimeFormat) + logText + "\r\n" + methodName;
-            LogBuf = LogBuf.Insert(0, logLine);
+
+            lock (logLock)
+            {
+                if (LogBuf.Length > DefaultMaxBufferLength) LogBuf = LogBuf.Remove(DefaultMaxBufferLength - 4096);
+                LogBuf = LogBuf.Insert(0, logLine);
+            }
 
             //Renew LogStreamWriter in case log path changes
             LogStreamWriter = GetLogStreamWriter();
