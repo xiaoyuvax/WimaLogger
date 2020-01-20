@@ -71,7 +71,7 @@ namespace Wima.Log
         /// <summary>
         /// LogStream for writing 
         /// </summary>
-        private StreamWriter LogStreamWriter { get; set; }
+        private StreamWriter _logWriter { get; set; }
 
         /// <summary>
         /// Reggistered loggers
@@ -106,8 +106,7 @@ namespace Wima.Log
 
             Name = logName;
 
-            LogStreamWriter = GetLogStreamWriter();
-
+            RenewLogWriter();
 
             //Register this Logman instance to a global static Bag
             Loggers.Add(this);
@@ -115,10 +114,10 @@ namespace Wima.Log
             Info($"LogMan is working!");
         }
 
-        private StreamWriter GetLogStreamWriter()
+        private void RenewLogWriter()
         {
             //默认为当前的日志写入器
-            StreamWriter writer = LogStreamWriter;
+            StreamWriter writer = null;
 
             string nextLogPath = GetNextLogPath();
             if (LogPath != nextLogPath)
@@ -130,6 +129,8 @@ namespace Wima.Log
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
                         writer = new StreamWriter(LogPath, true) { AutoFlush = true };
+                        if (_logWriter != null) _logWriter.Dispose();
+                        _logWriter = writer;
                     }
                     catch (Exception ex)
                     {
@@ -138,17 +139,12 @@ namespace Wima.Log
                     }
                 }
             }
-            return writer;
-
         }
 
         private string GetNextLogPath()
         {
             return LogRoot + Name + "_" + DateTime.Now.ToString(LogFileNameTimeFormat) + ".log";
         }
-
-        //public LogMan(string Key) : this(Key) // LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
-        //{ }
 
         public LogMan(Type type) : this(type.Name) //LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
         { }
@@ -222,12 +218,12 @@ namespace Wima.Log
             }
 
             //Renew LogStreamWriter in case log path changes
-            LogStreamWriter = GetLogStreamWriter();
-            if (LogModes.HasFlag(LogMode.Native) && LogStreamWriter != null)
+            RenewLogWriter();
+            if (LogModes.HasFlag(LogMode.Native) && _logWriter != null)
             {
                 try
                 {
-                    lock (LogStreamWriter) { LogStreamWriter.Write(logLine); }
+                    lock (_logWriter) { _logWriter.Write(logLine); }
                 }
                 catch (Exception excpt) { LogBuf.Insert(0, "!!!Failure writing log stream：" + excpt.Message); }
             }
