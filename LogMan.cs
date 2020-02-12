@@ -1,6 +1,5 @@
 ﻿using Common.Logging;
 using Common.Logging.Factory;
-using Common.Logging.Simple;
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -111,7 +110,7 @@ namespace Wima.Log
             //Register this Logman instance to a global static Bag
             Loggers.Add(this);
 
-            Info($"LogMan is working!");
+            Info("LogMan is working!");
         }
 
         private void RenewLogWriter()
@@ -141,10 +140,7 @@ namespace Wima.Log
             }
         }
 
-        private string GetNextLogPath()
-        {
-            return LogRoot + Name + "_" + DateTime.Now.ToString(LogFileNameTimeFormat) + ".log";
-        }
+        private string GetNextLogPath() => LogRoot + Name + "_" + DateTime.Now.ToString(LogFileNameTimeFormat) + ".log";
 
         public LogMan(Type type) : this(type.Name) //LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
         { }
@@ -154,10 +150,8 @@ namespace Wima.Log
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
 
-        public void Error(Exception ex)
-        {
-            Error(ex.TargetSite + ":" + ex.Message);
-        }
+        public void Error(Exception ex) => Error(ex.TargetSite + ":" + ex.Message);
+
 
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
         {
@@ -190,6 +184,8 @@ namespace Wima.Log
                         if (ex == null) CommonLogger.Fatal(message);
                         else CommonLogger.Fatal(message, ex);
                         break;
+                    default:
+                        break;
                 }
             };
 
@@ -201,15 +197,15 @@ namespace Wima.Log
             string logText = $"[{level.ToString()}]{logName}:" + message?.ToString() +
                 (ex == null ? "" : " - " + ex.Message + " - " + ex.InnerException?.Message);
 
-            string methodName = "";
+            string stackChain = "";
             if (LogModes.HasFlag(LogMode.StackTrace))
             {
                 StackTrace callStack = new StackTrace();
-                callStack.GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith(".")).ToList().ForEach(i => methodName += "/" + i);
-                methodName = " <- " + methodName + "\r\n\r\n";
+                callStack.GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith(".")).ToList().ForEach(i => stackChain += "/" + i);
+                stackChain = " <- " + stackChain + "\r\n\r\n";
             }
 
-            string logLine = DateTime.Now.ToString(LogLineTimeFormat) + logText + "\r\n" + methodName;
+            string logLine = DateTime.Now.ToString(LogLineTimeFormat) + logText + "\r\n" + stackChain;
 
             lock (logLock)
             {
