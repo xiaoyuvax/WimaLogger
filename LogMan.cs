@@ -19,10 +19,8 @@ namespace Wima.Log
         Verbose = 0b10000
     }
 
-
     public class LogMan : AbstractLogger
     {
-
         public static string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
         public static string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd_HH:mm:ss";
         public static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
@@ -39,7 +37,6 @@ namespace Wima.Log
 
         private ILog CommonLogger { get; set; } = null;
 
-
         /// <summary>
         /// Log root path
         /// </summary>
@@ -55,12 +52,10 @@ namespace Wima.Log
         /// </summary>
         public string LogFileNameTimeFormat { get; set; } = DEFAULT_LOGFILE_NAME_TIME_FORMAT;
 
-
         /// <summary>
         /// Date format for log lines
         /// </summary>
         public string LogLineTimeFormat { get; set; } = DEFAULT_LOGLINE_TIME_FORMAT;
-
 
         /// <summary>
         /// Path for current LogMan instance
@@ -68,7 +63,7 @@ namespace Wima.Log
         public string LogPath { get; private set; }
 
         /// <summary>
-        /// LogStream for writing 
+        /// LogStream for writing
         /// </summary>
         private StreamWriter _logWriter { get; set; }
 
@@ -152,10 +147,8 @@ namespace Wima.Log
 
         public void Error(Exception ex) => Error(ex.TargetSite + ":" + ex.Message);
 
-
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
         {
-
             if (LogModes.HasFlag(LogMode.CommonLog) && CommonLogger != null)
             {
                 switch (level)
@@ -164,31 +157,36 @@ namespace Wima.Log
                         if (ex == null) CommonLogger.Trace(message);
                         else CommonLogger.Trace(message, ex);
                         break;
+
                     case LogLevel.Debug:
                         if (ex == null) CommonLogger.Debug(message);
                         else CommonLogger.Debug(message, ex);
                         break;
+
                     case LogLevel.Info:
                         if (ex == null) CommonLogger.Info(message);
                         else CommonLogger.Info(message, ex);
                         break;
+
                     case LogLevel.Warn:
                         if (ex == null) CommonLogger.Warn(message);
                         else CommonLogger.Error(message, ex);
                         break;
+
                     case LogLevel.Error:
                         if (ex == null) CommonLogger.Error(message);
                         else CommonLogger.Error(message, ex);
                         break;
+
                     case LogLevel.Fatal:
                         if (ex == null) CommonLogger.Fatal(message);
                         else CommonLogger.Fatal(message, ex);
                         break;
+
                     default:
                         break;
                 }
             };
-
 
             var posSep = Name.LastIndexOf(Path.DirectorySeparatorChar) + 1;
             var logName = Name;
@@ -227,5 +225,4 @@ namespace Wima.Log
             if (LogModes.HasFlag(LogMode.Console)) Console.Write(logLine);
         }
     }
-
 }
