@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Wima.LogService</name>
+    </assembly>
+    <members>
+        <member name="P:Wima.Log.LogMan.LogBuf">
+            <summary>
+            In-memory buffer of recent log, for quick query of rencent logs.
+            </summary>
+        </member>
+        <member name="F:Wima.Log.LogMan.LogRoot">
+            <summary>
+            Log root path
+            </summary>
+        </member>
+        <member name="F:Wima.Log.LogMan.logLock">
+            <summary>
+            Writing lock,prevent race condition.
+            </summary>
+        </member>
+        <member name="P:Wima.Log.LogMan.LogFileNameTimeFormat">
+            <summary>
+            Date format for log files
+            </summary>
+        </member>
+        <member name="P:Wima.Log.LogMan.LogLineTimeFormat">
+            <summary>
+            Date format for log lines
+            </summary>
+        </member>
+        <member name="P:Wima.Log.LogMan.LogPath">
+            <summary>
+            Path for current LogMan instance
+            </summary>
+        </member>
+        <member name="P:Wima.Log.LogMan._logWriter">
+            <summary>
+            LogStream for writing
+            </summary>
+        </member>
+        <member name="P:Wima.Log.LogMan.Loggers">
+            <summary>
+            Reggistered loggers
+            </summary>
+        </member>
+    </members>
+</doc>
