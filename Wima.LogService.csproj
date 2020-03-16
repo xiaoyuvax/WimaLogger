@@ -6,7 +6,7 @@
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <DocumentationFile>D:\Repos\LoraMonitor\trunk\WMLogService.Core\Wima.LogService.xml</DocumentationFile>
+    <DocumentationFile>Wima.LogService.xml</DocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
