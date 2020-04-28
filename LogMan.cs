@@ -122,7 +122,8 @@ namespace Wima.Log
                     try
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
-                        writer = new StreamWriter(LogPath, true) { AutoFlush = true };
+
+                        writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };                        
                         if (_logWriter != null) _logWriter.Dispose();
                         _logWriter = writer;
                     }
