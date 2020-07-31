@@ -70,7 +70,7 @@ namespace Wima.Log
         /// <summary>
         /// Reggistered loggers
         /// </summary>
-        public static ConcurrentBag<LogMan> Loggers { get; private set; } = new ConcurrentBag<LogMan>();
+        public static ConcurrentDictionary<string, LogMan> Loggers { get; private set; } = new ConcurrentDictionary<string, LogMan>();
 
         public override bool IsTraceEnabled => true;
 
@@ -103,9 +103,9 @@ namespace Wima.Log
             RenewLogWriter();
 
             //Register this Logman instance to a global static Bag
-            Loggers.Add(this);
+            if (!Loggers.TryAdd(logName, this)) Error("Failed to registered LogMan!");
 
-            Info("LogMan is working!");
+            Info("LogMan - Ready!");
         }
 
         private void RenewLogWriter()
@@ -123,7 +123,7 @@ namespace Wima.Log
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
 
-                        writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };                        
+                        writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
                         if (_logWriter != null) _logWriter.Dispose();
                         _logWriter = writer;
                     }
@@ -224,6 +224,22 @@ namespace Wima.Log
             }
 
             if (LogModes.HasFlag(LogMode.Console)) Console.Write(logLine);
+        }
+
+
+
+
+        /// <summary>
+        /// Unregister Logman from Loggers Dictionary, call this method when dispose the object associated with a logman instance.
+        /// </summary>
+        /// <returns></returns>
+        public bool Unregister()
+        {
+            var done = Loggers.TryRemove(Name, out _);
+            if (done) Info("LogMan - Unregistered!");
+            _logWriter?.Dispose();
+            _logWriter = null;
+            return done;
         }
     }
 }
