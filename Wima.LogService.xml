@@ -44,5 +44,11 @@
             Reggistered loggers
             </summary>
         </member>
+        <member name="M:Wima.Log.LogMan.Unregister">
+            <summary>
+            Unregister Logman from Loggers Dictionary, call this method when dispose the object associated with a logman instance.
+            </summary>
+            <returns></returns>
+        </member>
     </members>
 </doc>

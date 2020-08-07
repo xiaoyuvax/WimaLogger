@@ -141,7 +141,7 @@ namespace Wima.Log
         public LogMan(Type type) : this(type.Name) //LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
         { }
 
-        public LogMan(object obj) : this(obj.GetType().ToString()) //LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
+        public LogMan(object obj) : this(obj.GetType().Name) //LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
         { }
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
