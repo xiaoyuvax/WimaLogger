@@ -23,20 +23,6 @@ namespace Wima.Log
     {
         public static string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
         public static string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd_HH:mm:ss";
-        public static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
-        public static LogMode GlobalLogModes { get; set; } = LogMode.Console;
-
-        public string Name { get; set; } = "";
-
-        public LogMode LogModes { get; set; }
-
-        /// <summary>
-        /// In-memory buffer of recent log, for quick query of rencent logs.
-        /// </summary>
-        public string LogBuf { get; set; } = "";
-
-        private ILog CommonLogger { get; set; } = null;
-
         /// <summary>
         /// Log root path
         /// </summary>
@@ -46,43 +32,6 @@ namespace Wima.Log
         /// Writing lock,prevent race condition.
         /// </summary>
         private readonly object logLock = new object();
-
-        /// <summary>
-        /// Date format for log files
-        /// </summary>
-        public string LogFileNameTimeFormat { get; set; } = DEFAULT_LOGFILE_NAME_TIME_FORMAT;
-
-        /// <summary>
-        /// Date format for log lines
-        /// </summary>
-        public string LogLineTimeFormat { get; set; } = DEFAULT_LOGLINE_TIME_FORMAT;
-
-        /// <summary>
-        /// Path for current LogMan instance
-        /// </summary>
-        public string LogPath { get; private set; }
-
-        /// <summary>
-        /// LogStream for writing
-        /// </summary>
-        private StreamWriter _logWriter { get; set; }
-
-        /// <summary>
-        /// Reggistered loggers
-        /// </summary>
-        public static ConcurrentDictionary<string, LogMan> Loggers { get; private set; } = new ConcurrentDictionary<string, LogMan>();
-
-        public override bool IsTraceEnabled => true;
-
-        public override bool IsDebugEnabled => true;
-
-        public override bool IsInfoEnabled => true;
-
-        public override bool IsWarnEnabled => true;
-
-        public override bool IsErrorEnabled => true;
-
-        public override bool IsFatalEnabled => true;
 
         public LogMan(string logName) //LogLevel logLevel, bool showlevel, bool showDateTime, bool showLogName, string dateTimeFormat
         {
@@ -103,40 +52,10 @@ namespace Wima.Log
             RenewLogWriter();
 
             //Register this Logman instance to a global static Bag
-            if (!Loggers.TryAdd(logName, this)) Error("Failed to registered LogMan!");
+            Loggers.AddOrUpdate(logName, this, (k, v) => this);
 
             Info("LogMan - Ready!");
         }
-
-        private void RenewLogWriter()
-        {
-            //默认为当前的日志写入器
-            StreamWriter writer = null;
-
-            string nextLogPath = GetNextLogPath();
-            if (LogPath != nextLogPath)
-            {
-                LogPath = nextLogPath;
-                if (LogModes.HasFlag(LogMode.Native))
-                {
-                    try
-                    {
-                        Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
-
-                        writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
-                        if (_logWriter != null) _logWriter.Dispose();
-                        _logWriter = writer;
-                    }
-                    catch (Exception ex)
-                    {
-                        LogBuf = "Unable to create log files,Console mode only！Error：" + ex.Message;
-                        LogModes = LogMode.Console;
-                    }
-                }
-            }
-        }
-
-        private string GetNextLogPath() => LogRoot + Name + "_" + DateTime.Now.ToString(LogFileNameTimeFormat) + ".log";
 
         public LogMan(Type type) : this(type.Name) //LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
         { }
@@ -144,9 +63,62 @@ namespace Wima.Log
         public LogMan(object obj) : this(obj.GetType().Name) //LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
         { }
 
-        private static ILog GetLogger(string key) => LogManager.GetLogger(key);
+        public static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
+        public static LogMode GlobalLogModes { get; set; } = LogMode.Console;
 
+        /// <summary>
+        /// Reggistered loggers
+        /// </summary>
+        public static ConcurrentDictionary<string, LogMan> Loggers { get; private set; } = new ConcurrentDictionary<string, LogMan>();
+
+        public override bool IsDebugEnabled => true;
+        public override bool IsErrorEnabled => true;
+        public override bool IsFatalEnabled => true;
+        public override bool IsInfoEnabled => true;
+        public override bool IsTraceEnabled => true;
+        public override bool IsWarnEnabled => true;
+        /// <summary>
+        /// In-memory buffer of recent log, for quick query of rencent logs.
+        /// </summary>
+        public string LogBuf { get; set; } = "";
+
+        /// <summary>
+        /// Date format for log files
+        /// </summary>
+        public string LogFileNameTimeFormat { get; set; } = DEFAULT_LOGFILE_NAME_TIME_FORMAT;
+
+        /// <summary>
+        /// Date format for log lines
+        /// </summary>
+        public string LogLineTimeFormat { get; set; } = DEFAULT_LOGLINE_TIME_FORMAT;
+
+        public LogMode LogModes { get; set; }
+        /// <summary>
+        /// Path for current LogMan instance
+        /// </summary>
+        public string LogPath { get; private set; }
+
+        public string Name { get; set; } = "";
+        /// <summary>
+        /// LogStream for writing
+        /// </summary>
+        private StreamWriter _logWriter { get; set; }
+
+        private ILog CommonLogger { get; set; } = null;
         public void Error(Exception ex) => Error(ex.TargetSite + ":" + ex.Message);
+
+        /// <summary>
+        /// Unregister Logman from Loggers Dictionary, call this method when dispose the object associated with a logman instance.
+        /// </summary>
+        /// <returns></returns>
+        public bool Unregister()
+        {
+            var done = Loggers.TryRemove(Name, out _);
+            if (done) Info("LogMan - Unregistered!");
+            _logWriter?.Dispose();
+            _logWriter = null;
+            return done;
+        }
 
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
         {
@@ -226,20 +198,36 @@ namespace Wima.Log
             if (LogModes.HasFlag(LogMode.Console)) Console.Write(logLine);
         }
 
+        private static ILog GetLogger(string key) => LogManager.GetLogger(key);
 
+        private string GetNextLogPath() => LogRoot + Name + "_" + DateTime.Now.ToString(LogFileNameTimeFormat) + ".log";
 
-
-        /// <summary>
-        /// Unregister Logman from Loggers Dictionary, call this method when dispose the object associated with a logman instance.
-        /// </summary>
-        /// <returns></returns>
-        public bool Unregister()
+        private void RenewLogWriter()
         {
-            var done = Loggers.TryRemove(Name, out _);
-            if (done) Info("LogMan - Unregistered!");
-            _logWriter?.Dispose();
-            _logWriter = null;
-            return done;
+            //默认为当前的日志写入器
+            StreamWriter writer = null;
+
+            string nextLogPath = GetNextLogPath();
+            if (LogPath != nextLogPath)
+            {
+                LogPath = nextLogPath;
+                if (LogModes.HasFlag(LogMode.Native))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
+
+                        writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
+                        if (_logWriter != null) _logWriter.Dispose();
+                        _logWriter = writer;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogBuf = "Unable to create log files,Console mode only！Error：" + ex.Message;
+                        LogModes = LogMode.Console;
+                    }
+                }
+            }
         }
     }
 }

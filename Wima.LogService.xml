@@ -4,11 +4,6 @@
         <name>Wima.LogService</name>
     </assembly>
     <members>
-        <member name="P:Wima.Log.LogMan.LogBuf">
-            <summary>
-            In-memory buffer of recent log, for quick query of rencent logs.
-            </summary>
-        </member>
         <member name="F:Wima.Log.LogMan.LogRoot">
             <summary>
             Log root path
@@ -17,6 +12,16 @@
         <member name="F:Wima.Log.LogMan.logLock">
             <summary>
             Writing lock,prevent race condition.
+            </summary>
+        </member>
+        <member name="P:Wima.Log.LogMan.Loggers">
+            <summary>
+            Reggistered loggers
+            </summary>
+        </member>
+        <member name="P:Wima.Log.LogMan.LogBuf">
+            <summary>
+            In-memory buffer of recent log, for quick query of rencent logs.
             </summary>
         </member>
         <member name="P:Wima.Log.LogMan.LogFileNameTimeFormat">
@@ -37,11 +42,6 @@
         <member name="P:Wima.Log.LogMan._logWriter">
             <summary>
             LogStream for writing
-            </summary>
-        </member>
-        <member name="P:Wima.Log.LogMan.Loggers">
-            <summary>
-            Reggistered loggers
             </summary>
         </member>
         <member name="M:Wima.Log.LogMan.Unregister">
