@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace Wima.Log
 {
@@ -80,7 +81,9 @@ namespace Wima.Log
         /// <summary>
         /// In-memory buffer of recent log, for quick query of rencent logs.
         /// </summary>
-        public string LogBuf { get; set; } = "";
+        public string LogBuf => _logBuf.ToString();
+
+        protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
 
         /// <summary>
         /// Date format for log files
@@ -105,7 +108,11 @@ namespace Wima.Log
         private StreamWriter _logWriter { get; set; }
 
         private ILog CommonLogger { get; set; } = null;
-        public void Error(Exception ex) => Error(ex.TargetSite + ":" + ex.Message);
+
+        public void Error(Exception ex)
+        {
+            if (ex != null) Error(ex.TargetSite + ":" + ex.Message);
+        }
 
         /// <summary>
         /// Unregister Logman from Loggers Dictionary, call this method when dispose the object associated with a logman instance.
@@ -165,23 +172,27 @@ namespace Wima.Log
             var logName = Name;
             if (posSep >= 0) logName = Name.Substring(posSep, Name.Length - posSep);
 
-            string logText = $"[{level.ToString()}]{logName}:" + message?.ToString() +
-                (ex == null ? "" : " - " + ex.Message + " - " + ex.InnerException?.Message);
+            StringBuilder logText = new StringBuilder($"[{level}]{logName}:" + message?.ToString() +
+                (ex == null ? "" : " - " + ex.Message + " - " + ex.InnerException?.Message));
 
-            string stackChain = "";
+            StringBuilder stackChain = new StringBuilder();
             if (LogModes.HasFlag(LogMode.StackTrace))
             {
                 StackTrace callStack = new StackTrace();
-                callStack.GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith(".")).ToList().ForEach(i => stackChain += "/" + i);
-                stackChain = " <- " + stackChain + "\r\n\r\n";
+                callStack.GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith(".")).ToList().ForEach(i => stackChain.Append("/" + i));
+                stackChain.Insert(0, " <- ");
+                logText.AppendLine();
+                logText.AppendLine();
             }
 
-            string logLine = DateTime.Now.ToString(LogLineTimeFormat) + logText + "\r\n" + stackChain;
+            logText.Insert(0, DateTime.Now.ToString(LogLineTimeFormat));
+            logText.AppendLine();
+            if (stackChain.Length > 0) logText.Append(stackChain);
 
             lock (logLock)
             {
-                if (LogBuf.Length > DefaultMaxBufferLength) LogBuf = LogBuf.Remove(DefaultMaxBufferLength - 4096);
-                LogBuf = LogBuf.Insert(0, logLine);
+                if (_logBuf.Length > DefaultMaxBufferLength) _logBuf.Remove(DefaultMaxBufferLength - 4096, 4096);
+                _logBuf.Insert(0, logText.ToString());
             }
 
             //Renew LogStreamWriter in case log path changes
@@ -190,12 +201,12 @@ namespace Wima.Log
             {
                 try
                 {
-                    lock (_logWriter) { _logWriter.Write(logLine); }
+                    lock (_logWriter) { _logWriter.Write(logText.ToString()); }
                 }
-                catch (Exception excpt) { LogBuf.Insert(0, "!!!Failure writing log stream：" + excpt.Message); }
+                catch (Exception excpt) { _logBuf.Insert(0, "!!!Failure writing log stream：" + excpt.Message); }
             }
 
-            if (LogModes.HasFlag(LogMode.Console)) Console.Write(logLine);
+            if (LogModes.HasFlag(LogMode.Console)) Console.Write(logText.ToString());
         }
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
@@ -223,7 +234,7 @@ namespace Wima.Log
                     }
                     catch (Exception ex)
                     {
-                        LogBuf = "Unable to create log files,Console mode only！Error：" + ex.Message;
+                        _logBuf.Append("Unable to create log files,Console mode only！Error：" + ex.Message);
                         LogModes = LogMode.Console;
                     }
                 }
