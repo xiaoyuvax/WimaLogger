@@ -22,12 +22,16 @@ namespace Wima.Log
 
     public class LogMan : AbstractLogger
     {
+        public const string LINE_REPLACEMENT_PREFIX = "<< ";
         public static string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
         public static string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd_HH:mm:ss";
+
         /// <summary>
-        /// Log root path
+        /// Global log root path
         /// </summary>
-        public string LogRoot = Path.GetFullPath(Directory.GetCurrentDirectory() + Path.DirectorySeparatorChar + @"Logs" + Path.DirectorySeparatorChar);
+        public static string LogRoot = Path.GetFullPath(Environment.CurrentDirectory + Path.DirectorySeparatorChar + @"Logs" + Path.DirectorySeparatorChar);
+
+        protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
 
         /// <summary>
         /// Writing lock,prevent race condition.
@@ -65,6 +69,7 @@ namespace Wima.Log
         { }
 
         public static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
+
         public static LogMode GlobalLogModes { get; set; } = LogMode.Console;
 
         /// <summary>
@@ -73,17 +78,31 @@ namespace Wima.Log
         public static ConcurrentDictionary<string, LogMan> Loggers { get; private set; } = new ConcurrentDictionary<string, LogMan>();
 
         public override bool IsDebugEnabled => true;
+
         public override bool IsErrorEnabled => true;
+
         public override bool IsFatalEnabled => true;
+
         public override bool IsInfoEnabled => true;
+
         public override bool IsTraceEnabled => true;
+
         public override bool IsWarnEnabled => true;
+
         /// <summary>
         /// In-memory buffer of recent log, for quick query of rencent logs.
         /// </summary>
-        public string LogBuf => _logBuf.ToString();
+        public string LogBuf
+        {
+            get
+            {
+                lock (logLock)
+                {
+                    return _logBuf.ToString();
+                }
+            }
+        }
 
-        protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
 
         /// <summary>
         /// Date format for log files
@@ -96,12 +115,14 @@ namespace Wima.Log
         public string LogLineTimeFormat { get; set; } = DEFAULT_LOGLINE_TIME_FORMAT;
 
         public LogMode LogModes { get; set; }
+
         /// <summary>
         /// Path for current LogMan instance
         /// </summary>
         public string LogPath { get; private set; }
 
         public string Name { get; set; } = "";
+
         /// <summary>
         /// LogStream for writing
         /// </summary>
@@ -109,11 +130,16 @@ namespace Wima.Log
 
         private ILog CommonLogger { get; set; } = null;
 
+        /// <summary>
+        /// 用指定的基路径指定日志根路径
+        /// </summary>
+        /// <param name="workingPath"></param>
+        public static void SetGlobalLogRoot(string workingPath) => LogRoot = Path.GetFullPath(workingPath + Path.DirectorySeparatorChar + @"Logs" + Path.DirectorySeparatorChar);
+
         public void Error(Exception ex)
         {
             if (ex != null) Error(ex.TargetSite + ":" + ex.Message);
         }
-
         /// <summary>
         /// Unregister Logman from Loggers Dictionary, call this method when dispose the object associated with a logman instance.
         /// </summary>
@@ -192,7 +218,9 @@ namespace Wima.Log
             lock (logLock)
             {
                 if (_logBuf.Length > DefaultMaxBufferLength) _logBuf.Remove(DefaultMaxBufferLength - 4096, 4096);
-                _logBuf.Insert(0, logText.ToString());
+                string line = logText.ToString();
+                if (line.Contains(LINE_REPLACEMENT_PREFIX)) _logBuf.Remove(0, _logBuf.ToString().IndexOf(Environment.NewLine) + Environment.NewLine.Length);
+                _logBuf.Insert(0, line);
             }
 
             //Renew LogStreamWriter in case log path changes
@@ -203,7 +231,13 @@ namespace Wima.Log
                 {
                     lock (_logWriter) { _logWriter.Write(logText.ToString()); }
                 }
-                catch (Exception excpt) { _logBuf.Insert(0, "!!!Failure writing log stream：" + excpt.Message); }
+                catch (Exception excpt)
+                {
+                    lock (logLock)
+                    {
+                        _logBuf.Insert(0, "!!!Failure writing log stream：" + excpt.Message);
+                    }
+                }
             }
 
             if (LogModes.HasFlag(LogMode.Console)) Console.Write(logText.ToString());
@@ -234,7 +268,10 @@ namespace Wima.Log
                     }
                     catch (Exception ex)
                     {
-                        _logBuf.Append("Unable to create log files,Console mode only！Error：" + ex.Message);
+                        lock (logLock)
+                        {
+                            _logBuf.Append("Unable to create log files,Console mode only！Error：" + ex.Message);
+                        }
                         LogModes = LogMode.Console;
                     }
                 }

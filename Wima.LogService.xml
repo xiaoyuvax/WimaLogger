@@ -6,7 +6,7 @@
     <members>
         <member name="F:Wima.Log.LogMan.LogRoot">
             <summary>
-            Log root path
+            Global log root path
             </summary>
         </member>
         <member name="F:Wima.Log.LogMan.logLock">
@@ -43,6 +43,12 @@
             <summary>
             LogStream for writing
             </summary>
+        </member>
+        <member name="M:Wima.Log.LogMan.SetGlobalLogRoot(System.String)">
+            <summary>
+            用指定的基路径指定日志根路径
+            </summary>
+            <param name="workingPath"></param>
         </member>
         <member name="M:Wima.Log.LogMan.Unregister">
             <summary>
