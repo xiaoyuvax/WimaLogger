@@ -225,11 +225,12 @@ namespace Wima.Log
 
             //Renew LogStreamWriter in case log path changes
             RenewLogWriter();
+
             if (LogModes.HasFlag(LogMode.Native) && _logWriter != null)
             {
                 try
                 {
-                    lock (_logWriter) { _logWriter.Write(logText.ToString()); }
+                    lock (_logWriter) { _logWriter?.Write(logText.ToString()); }
                 }
                 catch (Exception excpt)
                 {
