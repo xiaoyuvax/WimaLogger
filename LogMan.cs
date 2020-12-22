@@ -25,13 +25,15 @@ namespace Wima.Log
         public const string LINE_REPLACEMENT_PREFIX = "<< ";
         public static string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
         public static string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd_HH:mm:ss";
+        public static string DEFAULT_LOGROOT_NAME = "Logs";
 
         /// <summary>
         /// Global log root path
         /// </summary>
-        public static string LogRoot = Path.GetFullPath(Environment.CurrentDirectory + Path.DirectorySeparatorChar + @"Logs" + Path.DirectorySeparatorChar);
+        public static string LogRoot = ResetLogRoot();
 
         protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
+
 
         /// <summary>
         /// Writing lock,prevent race condition.
@@ -103,7 +105,6 @@ namespace Wima.Log
             }
         }
 
-
         /// <summary>
         /// Date format for log files
         /// </summary>
@@ -124,6 +125,13 @@ namespace Wima.Log
         public string Name { get; set; } = "";
 
         /// <summary>
+        /// Get LogRoot Path once
+        /// </summary>
+        public static string ResetLogRoot() => LogRoot = Path.GetFullPath(Environment.CurrentDirectory + Path.DirectorySeparatorChar + DEFAULT_LOGROOT_NAME + Path.DirectorySeparatorChar);
+
+
+
+        /// <summary>
         /// LogStream for writing
         /// </summary>
         private StreamWriter _logWriter { get; set; }
@@ -136,6 +144,10 @@ namespace Wima.Log
         /// <param name="workingPath"></param>
         public static void SetGlobalLogRoot(string workingPath) => LogRoot = Path.GetFullPath(workingPath + Path.DirectorySeparatorChar + @"Logs" + Path.DirectorySeparatorChar);
 
+        public static void SetLog2CodeBase()
+        {
+            LogRoot = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory + Path.DirectorySeparatorChar + DEFAULT_LOGROOT_NAME + Path.DirectorySeparatorChar);
+        }
         public void Error(Exception ex)
         {
             if (ex != null) Error(ex.TargetSite + ":" + ex.Message);
@@ -269,10 +281,7 @@ namespace Wima.Log
                     }
                     catch (Exception ex)
                     {
-                        lock (logLock)
-                        {
-                            _logBuf.Append("Unable to create log files,Console mode only！Error：" + ex.Message);
-                        }
+                        lock (logLock) _logBuf.Append("Unable to create log files,Console mode only！Error：" + ex.Message);
                         LogModes = LogMode.Console;
                     }
                 }
