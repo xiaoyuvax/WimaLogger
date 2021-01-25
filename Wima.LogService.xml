@@ -14,6 +14,26 @@
             Writing lock,prevent race condition.
             </summary>
         </member>
+        <member name="F:Wima.Log.LogMan._firstNL">
+            <summary>
+            Newline return pos for the first line.
+            </summary>
+        </member>
+        <member name="F:Wima.Log.LogMan._logLine">
+            <summary>
+            For storage of everyline of log
+            </summary>
+        </member>
+        <member name="F:Wima.Log.LogMan._logLineBuilder">
+            <summary>
+            Log text builder
+            </summary>
+        </member>
+        <member name="F:Wima.Log.LogMan._stackChain">
+            <summary>
+            Log text builder
+            </summary>
+        </member>
         <member name="P:Wima.Log.LogMan.Loggers">
             <summary>
             Reggistered loggers
@@ -42,6 +62,11 @@
         <member name="P:Wima.Log.LogMan._logWriter">
             <summary>
             LogStream for writing
+            </summary>
+        </member>
+        <member name="M:Wima.Log.LogMan.ResetLogRoot">
+            <summary>
+            Get LogRoot Path once
             </summary>
         </member>
         <member name="M:Wima.Log.LogMan.SetGlobalLogRoot(System.String)">
