@@ -20,7 +20,7 @@ namespace Wima.Log
         Verbose = 0b10000
     }
 
-    public class LogMan : AbstractLogger
+    public class LogMan : AbstractLogger, IDisposable
     {
         public const string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
         public const string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd_HH:mm:ss";
@@ -28,9 +28,14 @@ namespace Wima.Log
         public const string LINE_REPLACEMENT_PREFIX = "<< ";
 
         /// <summary>
-        /// Global log root path
+        /// Logfile Renewal Period(in hour)
         /// </summary>
-        public static string LogRoot = ResetLogRoot();
+        public static int LogRenewalPeriodInHour = 2;
+
+        /// <summary>
+        /// 是否记录内部意外的消息
+        /// </summary>
+        public bool LogInnerException = true;
 
         protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
 
@@ -56,6 +61,7 @@ namespace Wima.Log
 
         public LogMan(string logName) //LogLevel logLevel, bool showlevel, bool showDateTime, bool showLogName, string dateTimeFormat
         {
+            StartedAt = DateTime.Now;
             LogModes = GlobalLogModes;
 
             if (LogModes.HasFlag(LogMode.CommonLog))
@@ -72,8 +78,12 @@ namespace Wima.Log
 
             RenewLogWriter();
 
-            //Register this Logman instance to a global static Bag
-            Loggers.AddOrUpdate(logName, this, (k, v) => this);
+            //Register this Logman instance to a global static Bag, if new instance use exisiting name, the old record would be overwritten.
+            Loggers.AddOrUpdate(logName, this, (k, v) =>
+            {
+                v.Dispose();
+                return this;
+            });
 
             Info("LogMan - Ready!");
         }
@@ -93,6 +103,11 @@ namespace Wima.Log
         /// </summary>
         public static ConcurrentDictionary<string, LogMan> Loggers { get; private set; } = new ConcurrentDictionary<string, LogMan>();
 
+        /// <summary>
+        /// Global log root path
+        /// </summary>
+        public static string LogRoot { get; set; } = ResetLogRoot();
+        public static DateTime StartedAt { get; private set; }
         public override bool IsDebugEnabled => true;
 
         public override bool IsErrorEnabled => true;
@@ -129,10 +144,13 @@ namespace Wima.Log
         public LogMode LogModes { get; set; }
 
         /// <summary>
-        /// Path for current LogMan instance
+        /// Path for current instance
         /// </summary>
         public string LogPath { get; private set; }
 
+        /// <summary>
+        /// Name of the Log,should be unique among other instances.
+        /// </summary>
         public string Name { get; set; } = "";
 
         /// <summary>
@@ -143,7 +161,7 @@ namespace Wima.Log
         private ILog CommonLogger { get; set; } = null;
 
         /// <summary>
-        /// Get LogRoot Path once
+        /// Get LogRoot path once
         /// </summary>
         public static string ResetLogRoot() => LogRoot = Path.GetFullPath(Environment.CurrentDirectory + Path.DirectorySeparatorChar + DEFAULT_LOGROOT_NAME + Path.DirectorySeparatorChar);
 
@@ -154,26 +172,20 @@ namespace Wima.Log
         public static void SetGlobalLogRoot(string workingPath) => LogRoot = Path.GetFullPath(workingPath + Path.DirectorySeparatorChar + DEFAULT_LOGROOT_NAME + Path.DirectorySeparatorChar);
 
         /// <summary>
-        /// Set LogRoot to CodeBase path
+        /// Set LogRoot to CodeBase path, used for .net core when it was deployed as a service
         /// </summary>
-        public static void SetLog2CodeBase() => SetGlobalLogRoot(AppDomain.CurrentDomain.BaseDirectory);
-
-        public void Error(Exception ex)
-        {
-            if (ex != null) Error(ex.TargetSite + ":" + ex.Message);
-        }
+        public static void SetLogRoot2CodeBase() => SetGlobalLogRoot(AppDomain.CurrentDomain.BaseDirectory);
 
         /// <summary>
         /// Unregister Logman from Loggers Dictionary, call this method when dispose the object associated with a logman instance.
         /// </summary>
         /// <returns></returns>
-        public bool Unregister()
+        public void Dispose()
         {
             var done = Loggers.TryRemove(Name, out _);
-            if (done) Info("LogMan - Unregistered!");
+            if (done) Info("LogMan Disposed!");
             _logWriter?.Dispose();
             _logWriter = null;
-            return done;
         }
 
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
@@ -221,7 +233,8 @@ namespace Wima.Log
             lock (logLock)
             {
                 _logLineBuilder.Clear();
-                _logLineBuilder.Append($"{DateTime.Now.ToString(LogLineTimeFormat)}[{level}]{logName}:{message?.ToString()}{(ex == null ? "" : " - " + ex.Message + " - " + ex.InnerException?.Message)}{Environment.NewLine}");
+                _logLineBuilder.Append($"{DateTime.Now.ToString(LogLineTimeFormat)}[{level}]{logName}:{message?.ToString()}" +
+                    $"{(ex == null ? "" : " -> " + ex.Message + (LogInnerException ? " -> " + ex.InnerException?.Message : "")) + Environment.NewLine}");
 
                 if (LogModes.HasFlag(LogMode.StackTrace))
                 {
@@ -236,12 +249,13 @@ namespace Wima.Log
 
                 if (_logBuf.Length > DefaultMaxBufferLength) _logBuf.Remove(DefaultMaxBufferLength - 4096, 4096);
                 if (_logLine.Contains(LINE_REPLACEMENT_PREFIX) && (_firstNL = _logBuf.ToString().IndexOf(Environment.NewLine)) > 0)
-                    _logBuf.Remove(0, _firstNL + Environment.NewLine.Length);  //从日志缓存开头移除第一行
+                    _logBuf.Remove(0, _firstNL + Environment.NewLine.Length);  //remove first line from begining of _logBuf
 
                 _logBuf.Insert(0, _logLine);
             }
 
-            RenewLogWriter();
+            //Renew logwriter conditionally
+            if ((DateTime.Now - StartedAt).TotalHours % LogRenewalPeriodInHour == 0 || _logWriter == null) RenewLogWriter();
             //Renew LogStreamWriter in case log path changes
             if (LogModes.HasFlag(LogMode.Native) && _logWriter != null)
             {
@@ -249,13 +263,21 @@ namespace Wima.Log
                 {
                     lock (_logWriter) _logWriter.Write(_logLine);
                 }
-                catch (Exception excpt)
+                catch
                 {
-                    lock (logLock) _logBuf.Insert(0, "!!!Failure in writing log stream：" + excpt.Message);
+                    try
+                    {
+                        //if happens to fail writing during _logwriter renewal(occasionally), relock new _logWriter for anothter trial.
+                        lock (_logWriter) _logWriter.Write(_logLine);
+                    }
+                    catch (Exception ex2)
+                    {
+                        lock (logLock) _logBuf.Insert(0, "!!!Failure writing log stream：" + ex2.Message);
+                    }
                 }
             }
 
-            if (LogModes.HasFlag(LogMode.Console)) Console.Write(_logLineBuilder.ToString());
+            if (LogModes.HasFlag(LogMode.Console)) Console.Write(_logLine);
         }
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
@@ -279,7 +301,7 @@ namespace Wima.Log
                     }
                     catch (Exception ex)
                     {
-                        lock (logLock) _logBuf.Append("Unable to create log files,Console mode only！Error：" + ex.Message);
+                        lock (logLock) _logBuf.Append("Unable to create log files,Console Mode only！Error：" + ex.Message);
                         LogModes = LogMode.Console;
                     }
                 }

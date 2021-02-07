@@ -11,7 +11,7 @@
         </member>
         <member name="F:Wima.Log.LogMan.logLock">
             <summary>
-            Writing lock,prevent race condition.
+            Write lock,prevent race condition.
             </summary>
         </member>
         <member name="F:Wima.Log.LogMan._firstNL">
@@ -71,9 +71,14 @@
         </member>
         <member name="M:Wima.Log.LogMan.SetGlobalLogRoot(System.String)">
             <summary>
-            用指定的基路径指定日志根路径
+            Set LogRoot to specified path
             </summary>
             <param name="workingPath"></param>
+        </member>
+        <member name="M:Wima.Log.LogMan.SetLog2CodeBase">
+            <summary>
+            Set LogRoot to CodeBase path
+            </summary>
         </member>
         <member name="M:Wima.Log.LogMan.Unregister">
             <summary>
