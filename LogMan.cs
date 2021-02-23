@@ -32,11 +32,6 @@ namespace Wima.Log
         /// </summary>
         public static int LogRenewalPeriodInHour = 2;
 
-        /// <summary>
-        /// 是否记录内部意外的消息
-        /// </summary>
-        public bool LogInnerException = true;
-
         protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
 
         /// <summary>
@@ -210,7 +205,7 @@ namespace Wima.Log
 
                     case LogLevel.Warn:
                         if (ex == null) CommonLogger.Warn(message);
-                        else CommonLogger.Error(message, ex);
+                        else CommonLogger.Warn(message, ex);
                         break;
 
                     case LogLevel.Error:
@@ -234,7 +229,7 @@ namespace Wima.Log
             {
                 _logLineBuilder.Clear();
                 _logLineBuilder.Append($"{DateTime.Now.ToString(LogLineTimeFormat)}[{level}]{logName}:{message?.ToString()}" +
-                    $"{(ex == null ? "" : " -> " + ex.Message + (LogInnerException ? " -> " + ex.InnerException?.Message : "")) + Environment.NewLine}");
+                    $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex?.Message + "\r\n-> " + ex?.InnerException?.Message : "") + Environment.NewLine}");
 
                 if (LogModes.HasFlag(LogMode.StackTrace))
                 {
@@ -255,7 +250,7 @@ namespace Wima.Log
             }
 
             //Renew logwriter conditionally
-            if ((DateTime.Now - StartedAt).TotalHours % LogRenewalPeriodInHour == 0 || _logWriter == null) RenewLogWriter();
+            if (LogRenewalPeriodInHour == 1 || (int)(DateTime.Now - StartedAt).TotalHours % LogRenewalPeriodInHour == 0 || _logWriter == null) RenewLogWriter();
             //Renew LogStreamWriter in case log path changes
             if (LogModes.HasFlag(LogMode.Native) && _logWriter != null)
             {

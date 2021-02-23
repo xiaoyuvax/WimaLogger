@@ -4,9 +4,9 @@
         <name>Wima.LogService</name>
     </assembly>
     <members>
-        <member name="F:Wima.Log.LogMan.LogRoot">
+        <member name="F:Wima.Log.LogMan.LogRenewalPeriodInHour">
             <summary>
-            Global log root path
+            Logfile Renewal Period(in hour)
             </summary>
         </member>
         <member name="F:Wima.Log.LogMan.logLock">
@@ -39,6 +39,11 @@
             Reggistered loggers
             </summary>
         </member>
+        <member name="P:Wima.Log.LogMan.LogRoot">
+            <summary>
+            Global log root path
+            </summary>
+        </member>
         <member name="P:Wima.Log.LogMan.LogBuf">
             <summary>
             In-memory buffer of recent log, for quick query of rencent logs.
@@ -56,7 +61,12 @@
         </member>
         <member name="P:Wima.Log.LogMan.LogPath">
             <summary>
-            Path for current LogMan instance
+            Path for current instance
+            </summary>
+        </member>
+        <member name="P:Wima.Log.LogMan.Name">
+            <summary>
+            Name of the Log,should be unique among other instances.
             </summary>
         </member>
         <member name="P:Wima.Log.LogMan._logWriter">
@@ -66,7 +76,7 @@
         </member>
         <member name="M:Wima.Log.LogMan.ResetLogRoot">
             <summary>
-            Get LogRoot Path once
+            Get LogRoot path once
             </summary>
         </member>
         <member name="M:Wima.Log.LogMan.SetGlobalLogRoot(System.String)">
@@ -75,12 +85,12 @@
             </summary>
             <param name="workingPath"></param>
         </member>
-        <member name="M:Wima.Log.LogMan.SetLog2CodeBase">
+        <member name="M:Wima.Log.LogMan.SetLogRoot2CodeBase">
             <summary>
-            Set LogRoot to CodeBase path
+            Set LogRoot to CodeBase path, used for .net core when it was deployed as a service
             </summary>
         </member>
-        <member name="M:Wima.Log.LogMan.Unregister">
+        <member name="M:Wima.Log.LogMan.Dispose">
             <summary>
             Unregister Logman from Loggers Dictionary, call this method when dispose the object associated with a logman instance.
             </summary>
