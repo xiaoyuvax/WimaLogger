@@ -117,7 +117,7 @@ namespace Wima.Log
         public override bool IsWarnEnabled => true;
 
         /// <summary>
-        /// In-memory buffer of recent log, for quick query of rencent logs.
+        /// In-memory buffer of recent logs, for quick query of rencent logs.
         /// </summary>
         public string LogBuf
         {
@@ -279,30 +279,34 @@ namespace Wima.Log
 
         private string GetNextLogPath(DateTime? now = null) => LogRoot + Name + "_" + (now ?? DateTime.Now).ToString(LogFileNameTimeFormat) + ".log";
 
+        /// <summary>
+        /// 线程安全地更新的LogWriter
+        /// </summary>
         private void RenewLogWriter()
         {
             DateTime now = DateTime.Now;
             if (LogRenewalPeriodInHour == 1 || ((int)(now - StartedAt).TotalHours) % LogRenewalPeriodInHour == 0 || _logWriter == null)
-            {
-                string nextLogPath = GetNextLogPath(now);
-                if (LogPath != nextLogPath)
+                lock (logLock)
                 {
-                    LogPath = nextLogPath;
-                    if (LogModes.HasFlag(LogMode.Native))
-                        try
-                        {
-                            Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
-                            StreamWriter writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
-                            _logWriter?.Dispose();
-                            _logWriter = writer;
-                        }
-                        catch (Exception ex)
-                        {
-                            lock (logLock) _logBuf.Append("Unable to create log files,Console Mode only！Error：" + ex.Message);
-                            LogModes = LogMode.Console;
-                        }
+                    string nextLogPath = GetNextLogPath(now);
+                    if (LogPath != nextLogPath)
+                    {
+                        LogPath = nextLogPath;
+                        if (LogModes.HasFlag(LogMode.Native))
+                            try
+                            {
+                                Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
+                                var writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
+                                _logWriter?.Dispose();
+                                _logWriter = writer;
+                            }
+                            catch (Exception ex)
+                            {
+                                _logBuf.Append("Unable to create log files,Console Mode only！Error：" + ex.Message);
+                                LogModes = LogMode.Console;
+                            }
+                    }
                 }
-            }
         }
     }
 }
