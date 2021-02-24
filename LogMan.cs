@@ -102,6 +102,7 @@ namespace Wima.Log
         /// Global log root path
         /// </summary>
         public static string LogRoot { get; set; } = ResetLogRoot();
+
         public static DateTime StartedAt { get; private set; }
         public override bool IsDebugEnabled => true;
 
@@ -250,27 +251,26 @@ namespace Wima.Log
             }
 
             //Renew logwriter conditionally
-            if (LogRenewalPeriodInHour == 1 || (int)(DateTime.Now - StartedAt).TotalHours % LogRenewalPeriodInHour == 0 || _logWriter == null) RenewLogWriter();
+            RenewLogWriter();
             //Renew LogStreamWriter in case log path changes
             if (LogModes.HasFlag(LogMode.Native) && _logWriter != null)
-            {
-                try
+                for (int i = 0; i < 2; i++)
                 {
-                    lock (_logWriter) _logWriter.Write(_logLine);
-                }
-                catch
-                {
+                    //if happens to fail writing during _logwriter renewal(occasionally in case threads pile up), relock new _logWriter for anothter trial.
                     try
                     {
-                        //if happens to fail writing during _logwriter renewal(occasionally), relock new _logWriter for anothter trial.
                         lock (_logWriter) _logWriter.Write(_logLine);
+                        break;
                     }
                     catch (Exception ex2)
                     {
-                        lock (logLock) _logBuf.Insert(0, "!!!Failure writing log stream：" + ex2.Message);
+                        if (i > 0)
+                        {
+                            lock (logLock) _logBuf.Insert(0, "!!!Bad log stream：" + ex2.Message);
+                            break;
+                        }
                     }
                 }
-            }
 
             if (LogModes.HasFlag(LogMode.Console)) Console.Write(_logLine);
         }
@@ -281,24 +281,25 @@ namespace Wima.Log
 
         private void RenewLogWriter()
         {
-            string nextLogPath = GetNextLogPath();
-            if (LogPath != nextLogPath)
+            if (LogRenewalPeriodInHour == 1 || ((int)(DateTime.Now - StartedAt).TotalHours) % LogRenewalPeriodInHour == 0 || _logWriter == null)
             {
-                LogPath = nextLogPath;
-                if (LogModes.HasFlag(LogMode.Native))
+                string nextLogPath = GetNextLogPath();
+                if (LogPath != nextLogPath)
                 {
-                    try
-                    {
-                        Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
-                        StreamWriter writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
-                        _logWriter?.Dispose();
-                        _logWriter = writer;
-                    }
-                    catch (Exception ex)
-                    {
-                        lock (logLock) _logBuf.Append("Unable to create log files,Console Mode only！Error：" + ex.Message);
-                        LogModes = LogMode.Console;
-                    }
+                    LogPath = nextLogPath;
+                    if (LogModes.HasFlag(LogMode.Native))
+                        try
+                        {
+                            Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
+                            StreamWriter writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
+                            _logWriter?.Dispose();
+                            _logWriter = writer;
+                        }
+                        catch (Exception ex)
+                        {
+                            lock (logLock) _logBuf.Append("Unable to create log files,Console Mode only！Error：" + ex.Message);
+                            LogModes = LogMode.Console;
+                        }
                 }
             }
         }
