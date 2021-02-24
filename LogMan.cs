@@ -277,13 +277,14 @@ namespace Wima.Log
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
 
-        private string GetNextLogPath() => LogRoot + Name + "_" + DateTime.Now.ToString(LogFileNameTimeFormat) + ".log";
+        private string GetNextLogPath(DateTime? now = null) => LogRoot + Name + "_" + (now ?? DateTime.Now).ToString(LogFileNameTimeFormat) + ".log";
 
         private void RenewLogWriter()
         {
-            if (LogRenewalPeriodInHour == 1 || ((int)(DateTime.Now - StartedAt).TotalHours) % LogRenewalPeriodInHour == 0 || _logWriter == null)
+            DateTime now = DateTime.Now;
+            if (LogRenewalPeriodInHour == 1 || ((int)(now - StartedAt).TotalHours) % LogRenewalPeriodInHour == 0 || _logWriter == null)
             {
-                string nextLogPath = GetNextLogPath();
+                string nextLogPath = GetNextLogPath(now);
                 if (LogPath != nextLogPath)
                 {
                     LogPath = nextLogPath;
