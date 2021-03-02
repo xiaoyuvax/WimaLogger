@@ -23,7 +23,7 @@ namespace Wima.Log
     public class LogMan : AbstractLogger, IDisposable
     {
         public const string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
-        public const string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd_HH:mm:ss";
+        public const string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd HH:mm:ss";
         public const string DEFAULT_LOGROOT_NAME = "Logs";
         public const string LINE_REPLACEMENT_PREFIX = "<< ";
 
@@ -35,9 +35,9 @@ namespace Wima.Log
         protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
 
         /// <summary>
-        /// Write lock,prevent race condition.
+        /// SyncRoot,for preventing race condition internally or externally.
         /// </summary>
-        private readonly object logLock = new object();
+        public readonly object SyncRoot = new object();
 
         /// <summary>
         /// Newline return pos for the first line.
@@ -123,7 +123,7 @@ namespace Wima.Log
         {
             get
             {
-                lock (logLock) return _logBuf.ToString();
+                lock (SyncRoot) return _logBuf.ToString();
             }
         }
 
@@ -226,10 +226,10 @@ namespace Wima.Log
             var posSep = Name.LastIndexOf(Path.DirectorySeparatorChar) + 1;
             var logName = posSep >= 0 ? Name.Substring(posSep, Name.Length - posSep) : Name;
 
-            lock (logLock)
+            lock (SyncRoot)
             {
                 _logLineBuilder.Clear();
-                _logLineBuilder.Append($"{DateTime.Now.ToString(LogLineTimeFormat)}[{level}]{logName}:{message?.ToString()}" +
+                _logLineBuilder.Append($"{DateTime.Now.ToString(LogLineTimeFormat)} {level}\t{message?.ToString()}" +
                     $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex?.Message + "\r\n-> " + ex?.InnerException?.Message : "") + Environment.NewLine}");
 
                 if (LogModes.HasFlag(LogMode.StackTrace))
@@ -266,7 +266,7 @@ namespace Wima.Log
                     {
                         if (i > 0)
                         {
-                            lock (logLock) _logBuf.Insert(0, "!!!Bad log stream：" + ex2.Message);
+                            lock (SyncRoot) _logBuf.Insert(0, "!!!Bad log stream：" + ex2.Message);
                             break;
                         }
                     }
@@ -286,7 +286,7 @@ namespace Wima.Log
         {
             DateTime now = DateTime.Now;
             if (LogRenewalPeriodInHour == 1 || ((int)(now - StartedAt).TotalHours) % LogRenewalPeriodInHour == 0 || _logWriter == null)
-                lock (logLock)
+                lock (SyncRoot)
                 {
                     string nextLogPath = GetNextLogPath(now);
                     if (LogPath != nextLogPath)
@@ -297,7 +297,11 @@ namespace Wima.Log
                             {
                                 Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
                                 var writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
-                                _logWriter?.Dispose();
+                                if (_logWriter != null)
+                                {
+                                    _logWriter.Flush();
+                                    _logWriter.Dispose();
+                                }
                                 _logWriter = writer;
                             }
                             catch (Exception ex)

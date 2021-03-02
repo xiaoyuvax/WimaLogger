@@ -9,9 +9,9 @@
             Logfile Renewal Period(in hour)
             </summary>
         </member>
-        <member name="F:Wima.Log.LogMan.logLock">
+        <member name="F:Wima.Log.LogMan.SyncRoot">
             <summary>
-            Write lock,prevent race condition.
+            SyncRoot,for preventing race condition internally or externally.
             </summary>
         </member>
         <member name="F:Wima.Log.LogMan._firstNL">
@@ -46,7 +46,7 @@
         </member>
         <member name="P:Wima.Log.LogMan.LogBuf">
             <summary>
-            In-memory buffer of recent log, for quick query of rencent logs.
+            In-memory buffer of recent logs, for quick query of rencent logs.
             </summary>
         </member>
         <member name="P:Wima.Log.LogMan.LogFileNameTimeFormat">
@@ -95,6 +95,11 @@
             Unregister Logman from Loggers Dictionary, call this method when dispose the object associated with a logman instance.
             </summary>
             <returns></returns>
+        </member>
+        <member name="M:Wima.Log.LogMan.RenewLogWriter">
+            <summary>
+            线程安全地更新的LogWriter
+            </summary>
         </member>
     </members>
 </doc>
