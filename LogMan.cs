@@ -289,26 +289,25 @@ namespace Wima.Log
                 lock (SyncRoot)
                 {
                     string nextLogPath = GetNextLogPath(now);
-                    if (LogPath != nextLogPath)
+                    if (LogModes.HasFlag(LogMode.Native) && LogPath != nextLogPath)
                     {
                         LogPath = nextLogPath;
-                        if (LogModes.HasFlag(LogMode.Native))
-                            try
+                        try
+                        {
+                            Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
+                            var writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
+                            if (_logWriter != null)
                             {
-                                Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
-                                var writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
-                                if (_logWriter != null)
-                                {
-                                    _logWriter.Flush();
-                                    _logWriter.Dispose();
-                                }
-                                _logWriter = writer;
+                                _logWriter.Flush();
+                                _logWriter.Dispose();
                             }
-                            catch (Exception ex)
-                            {
-                                _logBuf.Append("Unable to create log files,Console Mode only！Error：" + ex.Message);
-                                LogModes = LogMode.Console;
-                            }
+                            _logWriter = writer;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logBuf.Append("Unable to create log files,Console Mode only！Error：" + ex.Message);
+                            LogModes = LogMode.Console;
+                        }
                     }
                 }
         }
