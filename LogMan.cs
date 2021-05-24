@@ -32,6 +32,11 @@ namespace Wima.Log
         /// </summary>
         public static int LogRenewalPeriodInHour = 2;
 
+        /// <summary>
+        /// Preserve Period in Hour, 0 = forever
+        /// </summary>
+        public static int LogPreservePeriodInHour = 0;
+
         protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
 
         /// <summary>
@@ -294,7 +299,8 @@ namespace Wima.Log
                         LogPath = nextLogPath;
                         try
                         {
-                            Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
+                            var logPath = Path.GetDirectoryName(LogPath);
+                            Directory.CreateDirectory(logPath);
                             var writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
                             if (_logWriter != null)
                             {
@@ -302,13 +308,29 @@ namespace Wima.Log
                                 _logWriter.Dispose();
                             }
                             _logWriter = writer;
+
+
+                            //Clean outdated log files,if necessary
+                            if (LogPreservePeriodInHour > 0)
+                                try
+                                {
+                                    Directory.GetFiles(logPath, "*.log")
+                                    .Where(i => (now - File.GetLastWriteTime(i)).TotalHours >= LogPreservePeriodInHour)
+                                    .ToList().ForEach(i => File.Delete(i));
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logBuf.Append("Unable to remove log files：" + ex.Message + "\r\n");
+                                }
+
                         }
                         catch (Exception ex)
                         {
-                            _logBuf.Append("Unable to create log files,Console Mode only！Error：" + ex.Message);
+                            _logBuf.Append("Unable to create log files,Console Mode only！Error：" + ex.Message + "\r\n");
                             LogModes = LogMode.Console;
                         }
                     }
+
                 }
         }
     }
