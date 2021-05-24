@@ -28,22 +28,20 @@ namespace Wima.Log
         public const string LINE_REPLACEMENT_PREFIX = "<< ";
 
         /// <summary>
-        /// Logfile Renewal Period(in hour)
-        /// </summary>
-        public static int LogRenewalPeriodInHour = 2;
-
-        /// <summary>
         /// Preserve Period in Hour, 0 = forever
         /// </summary>
         public static int LogPreservePeriodInHour = 0;
 
-        protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
-
+        /// <summary>
+        /// Logfile Renewal Period(in hour)
+        /// </summary>
+        public static int LogRenewalPeriodInHour = 2;
         /// <summary>
         /// SyncRoot,for preventing race condition internally or externally.
         /// </summary>
         public readonly object SyncRoot = new object();
 
+        protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
         /// <summary>
         /// Newline return pos for the first line.
         /// </summary>
@@ -58,6 +56,12 @@ namespace Wima.Log
         /// Log text builder
         /// </summary>
         private StringBuilder _logLineBuilder = new StringBuilder(), _stackChain = new StringBuilder();
+
+        /// <summary>
+        /// Name of the Log,should be unique among other instances.
+        /// </summary>
+        ///
+        private string _name;
 
         public LogMan(string logName) //LogLevel logLevel, bool showlevel, bool showDateTime, bool showLogName, string dateTimeFormat
         {
@@ -96,6 +100,9 @@ namespace Wima.Log
 
         public static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
 
+        /// <summary>
+        /// This property evaluates the LogModes property of new instance.
+        /// </summary>
         public static LogMode GlobalLogModes { get; set; } = LogMode.Console;
 
         /// <summary>
@@ -142,17 +149,26 @@ namespace Wima.Log
         /// </summary>
         public string LogLineTimeFormat { get; set; } = DEFAULT_LOGLINE_TIME_FORMAT;
 
+        /// <summary>
+        /// Logmodes for current instance, it takes effect instantly.
+        /// </summary>
         public LogMode LogModes { get; set; }
 
         /// <summary>
         /// Path for current instance
         /// </summary>
         public string LogPath { get; private set; }
-
-        /// <summary>
-        /// Name of the Log,should be unique among other instances.
-        /// </summary>
-        public string Name { get; set; } = "";
+        public string Name
+        {
+            get => _name;
+            set
+            {
+                _name = value;
+                Path.GetInvalidFileNameChars()
+                    .Where(i => i != Path.DirectorySeparatorChar)
+                    .ToList().ForEach(i => _name = _name.Replace(i, '_'));
+            }
+        }
 
         /// <summary>
         /// LogStream for writing
@@ -309,7 +325,6 @@ namespace Wima.Log
                             }
                             _logWriter = writer;
 
-
                             //Clean outdated log files,if necessary
                             if (LogPreservePeriodInHour > 0)
                                 try
@@ -322,7 +337,6 @@ namespace Wima.Log
                                 {
                                     _logBuf.Append("Unable to remove log files：" + ex.Message + "\r\n");
                                 }
-
                         }
                         catch (Exception ex)
                         {
@@ -330,7 +344,6 @@ namespace Wima.Log
                             LogModes = LogMode.Console;
                         }
                     }
-
                 }
         }
     }
