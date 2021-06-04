@@ -4,6 +4,11 @@
         <name>Wima.LogService</name>
     </assembly>
     <members>
+        <member name="F:Wima.Log.LogMan.LogPreservePeriodInHour">
+            <summary>
+            Preserve Period in Hour, 0 = forever
+            </summary>
+        </member>
         <member name="F:Wima.Log.LogMan.LogRenewalPeriodInHour">
             <summary>
             Logfile Renewal Period(in hour)
@@ -34,6 +39,17 @@
             Log text builder
             </summary>
         </member>
+        <member name="F:Wima.Log.LogMan._name">
+             <summary>
+             Name of the Log,should be unique among other instances.
+             </summary>
+            
+        </member>
+        <member name="P:Wima.Log.LogMan.GlobalLogModes">
+            <summary>
+            This property evaluates the LogModes property of new instance.
+            </summary>
+        </member>
         <member name="P:Wima.Log.LogMan.Loggers">
             <summary>
             Reggistered loggers
@@ -59,14 +75,14 @@
             Date format for log lines
             </summary>
         </member>
+        <member name="P:Wima.Log.LogMan.LogModes">
+            <summary>
+            Logmodes for current instance, it takes effect instantly.
+            </summary>
+        </member>
         <member name="P:Wima.Log.LogMan.LogPath">
             <summary>
             Path for current instance
-            </summary>
-        </member>
-        <member name="P:Wima.Log.LogMan.Name">
-            <summary>
-            Name of the Log,should be unique among other instances.
             </summary>
         </member>
         <member name="P:Wima.Log.LogMan._logWriter">

@@ -293,7 +293,7 @@ namespace Wima.Log
                     }
                 }
 
-            if (LogModes.HasFlag(LogMode.Console)) Console.Write(_logLine);
+            if (LogModes.HasFlag(LogMode.Console)) Console.Write(Name + "\t" + _logLine);
         }
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
