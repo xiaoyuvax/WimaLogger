@@ -26,6 +26,7 @@ namespace Wima.Log
         public const string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd HH:mm:ss";
         public const string DEFAULT_LOGROOT_NAME = "Logs";
         public const string LINE_REPLACEMENT_PREFIX = "<< ";
+        public const string INTERNAL_ERROR_STR = "[LogSvc Internal Error]";
 
         /// <summary>
         /// Preserve Period in Hour, 0 = forever
@@ -43,12 +44,12 @@ namespace Wima.Log
 
         protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
         /// <summary>
-        /// Newline return pos for the first line.
+        /// Newline + Return pos for the first line.
         /// </summary>
         private int _firstNL;
 
         /// <summary>
-        /// For storage of everyline of log
+        /// For construction of a line of log
         /// </summary>
         private string _logLine;
 
@@ -63,10 +64,38 @@ namespace Wima.Log
         ///
         private string _name;
 
-        public LogMan(string logName) //LogLevel logLevel, bool showlevel, bool showDateTime, bool showLogName, string dateTimeFormat
+        /// <summary>
+        /// Determine the details level of log
+        /// </summary>
+        public LogLevel LogLevel { get; set; }
+
+        /// <summary>
+        /// Show LogLevel in loglines or not
+        /// </summary>
+        public bool ShowLevel { get; set; }
+
+
+        /// <summary>
+        /// Show Datetime in loglines or not
+        /// </summary>
+        public bool ShowDateTime { get; set; }
+
+        /// <summary>
+        /// DateTimeFormat for loglines
+        /// </summary>
+        public string DateTimeFormat { get; set; }
+
+        /// <summary>
+        /// whether show LogName at beginning of line in console mode. LogName at each line will not be written to disk.
+        /// </summary>
+        public bool ShowLogName { get; set; }
+
+
+        public LogMan(string logName, LogLevel logLevel = LogLevel.All, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
         {
             StartedAt = DateTime.Now;
             LogModes = GlobalLogModes;
+
 
             if (LogModes.HasFlag(LogMode.CommonLog))
             {
@@ -74,15 +103,21 @@ namespace Wima.Log
                 catch (Exception ex)
                 {
                     LogModes = (GlobalLogModes ^ LogMode.CommonLog) | LogMode.Native;
-                    Info("Failure initalizing CommonLog,use native mode instead!", ex);
+                    Info(INTERNAL_ERROR_STR + "Failure initalizing CommonLog,use native mode instead!", ex);
                 }
             }
+
+            LogLevel = logLevel;
+            ShowLevel = showLevel;
+            ShowDateTime = showDateTime;
+            ShowLogName = showLogName;
+            DateTimeFormat = dateTimeFormat;
 
             Name = logName;
 
             RenewLogWriter();
 
-            //Register this Logman instance to a global static Bag, if new instance use exisiting name, the old record would be overwritten.
+            //Register this Logman instance to a global static dictionary, if new instance use exisiting name, the old record would be overwritten.
             Loggers.AddOrUpdate(logName, this, (k, v) =>
             {
                 v.Dispose();
@@ -92,16 +127,20 @@ namespace Wima.Log
             Info("LogMan - Ready!");
         }
 
-        public LogMan(Type type) : this(type.Name) //LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
+
+
+        public LogMan(Type type, LogLevel logLevel = LogLevel.All, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
+            : this(type.Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
         { }
 
-        public LogMan(object obj) : this(obj.GetType().Name) //LogLevel.All, true, true, true, DEFAULT_LOGFILE_NAME_TIME_FORMAT
+        public LogMan(object obj, LogLevel logLevel = LogLevel.All, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
+            : this(obj.GetType().Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
         { }
 
         public static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
 
         /// <summary>
-        /// This property evaluates the LogModes property of new instance.
+        /// This property evaluates default LogModes property of new instance.
         /// </summary>
         public static LogMode GlobalLogModes { get; set; } = LogMode.Console;
 
@@ -116,17 +155,17 @@ namespace Wima.Log
         public static string LogRoot { get; set; } = ResetLogRoot();
 
         public static DateTime StartedAt { get; private set; }
-        public override bool IsDebugEnabled => true;
+        public override bool IsDebugEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Debug);
 
-        public override bool IsErrorEnabled => true;
+        public override bool IsErrorEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Error);
 
-        public override bool IsFatalEnabled => true;
+        public override bool IsFatalEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Fatal);
 
-        public override bool IsInfoEnabled => true;
+        public override bool IsInfoEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Info);
 
-        public override bool IsTraceEnabled => true;
+        public override bool IsTraceEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Trace);
 
-        public override bool IsWarnEnabled => true;
+        public override bool IsWarnEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Warn);
 
         /// <summary>
         /// In-memory buffer of recent logs, for quick query of rencent logs.
@@ -139,13 +178,14 @@ namespace Wima.Log
             }
         }
 
+
         /// <summary>
-        /// Date format for log files
+        /// Time format for log file
         /// </summary>
         public string LogFileNameTimeFormat { get; set; } = DEFAULT_LOGFILE_NAME_TIME_FORMAT;
 
         /// <summary>
-        /// Date format for log lines
+        /// DateTime format for log lines
         /// </summary>
         public string LogLineTimeFormat { get; set; } = DEFAULT_LOGLINE_TIME_FORMAT;
 
@@ -171,7 +211,7 @@ namespace Wima.Log
         }
 
         /// <summary>
-        /// LogStream for writing
+        /// StreamWriter for writing
         /// </summary>
         private StreamWriter _logWriter { get; set; }
 
@@ -207,42 +247,51 @@ namespace Wima.Log
 
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
         {
-            if (LogModes.HasFlag(LogMode.CommonLog) && CommonLogger != null)
-                switch (level)
-                {
-                    case LogLevel.Trace:
+
+
+            bool useCommonLog() => LogModes.HasFlag(LogMode.CommonLog) && CommonLogger != null;
+
+            switch (level)
+            {
+                case LogLevel.Trace when IsTraceEnabled:
+                    if (useCommonLog())
                         if (ex == null) CommonLogger.Trace(message);
                         else CommonLogger.Trace(message, ex);
-                        break;
+                    break;
 
-                    case LogLevel.Debug:
+                case LogLevel.Debug when IsDebugEnabled:
+                    if (useCommonLog())
                         if (ex == null) CommonLogger.Debug(message);
                         else CommonLogger.Debug(message, ex);
-                        break;
+                    break;
 
-                    case LogLevel.Info:
+                case LogLevel.Info when IsInfoEnabled:
+                    if (useCommonLog())
                         if (ex == null) CommonLogger.Info(message);
                         else CommonLogger.Info(message, ex);
-                        break;
+                    break;
 
-                    case LogLevel.Warn:
+                case LogLevel.Warn when IsWarnEnabled:
+                    if (useCommonLog())
                         if (ex == null) CommonLogger.Warn(message);
                         else CommonLogger.Warn(message, ex);
-                        break;
+                    break;
 
-                    case LogLevel.Error:
+                case LogLevel.Error when IsErrorEnabled:
+                    if (useCommonLog())
                         if (ex == null) CommonLogger.Error(message);
                         else CommonLogger.Error(message, ex);
-                        break;
+                    break;
 
-                    case LogLevel.Fatal:
+                case LogLevel.Fatal when IsFatalEnabled:
+                    if (useCommonLog())
                         if (ex == null) CommonLogger.Fatal(message);
                         else CommonLogger.Fatal(message, ex);
-                        break;
+                    break;
 
-                    default:
-                        break;
-                }
+                default:
+                    return;
+            }
 
             var posSep = Name.LastIndexOf(Path.DirectorySeparatorChar) + 1;
             var logName = posSep >= 0 ? Name.Substring(posSep, Name.Length - posSep) : Name;
@@ -250,7 +299,7 @@ namespace Wima.Log
             lock (SyncRoot)
             {
                 _logLineBuilder.Clear();
-                _logLineBuilder.Append($"{DateTime.Now.ToString(LogLineTimeFormat)} {level}\t{message?.ToString()}" +
+                _logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level : "")}\t{message?.ToString()}" +
                     $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex?.Message + "\r\n-> " + ex?.InnerException?.Message : "") + Environment.NewLine}");
 
                 if (LogModes.HasFlag(LogMode.StackTrace))
@@ -287,13 +336,13 @@ namespace Wima.Log
                     {
                         if (i > 0)
                         {
-                            lock (SyncRoot) _logBuf.Insert(0, "!!!Bad log stream：" + ex2.Message);
+                            lock (SyncRoot) _logBuf.Insert(0, INTERNAL_ERROR_STR + "Bad log stream:" + ex2.Message);
                             break;
                         }
                     }
                 }
 
-            if (LogModes.HasFlag(LogMode.Console)) Console.Write(Name + "\t" + _logLine);
+            if (LogModes.HasFlag(LogMode.Console)) Console.Write((ShowLogName ? Name + "\t" : "") + _logLine);
         }
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
@@ -301,7 +350,7 @@ namespace Wima.Log
         private string GetNextLogPath(DateTime? now = null) => LogRoot + Name + "_" + (now ?? DateTime.Now).ToString(LogFileNameTimeFormat) + ".log";
 
         /// <summary>
-        /// 线程安全地更新的LogWriter
+        /// Thread-safely updating LogWriter
         /// </summary>
         private void RenewLogWriter()
         {
@@ -335,12 +384,12 @@ namespace Wima.Log
                                 }
                                 catch (Exception ex)
                                 {
-                                    _logBuf.Append("Unable to remove log files：" + ex.Message + "\r\n");
+                                    _logBuf.Append(INTERNAL_ERROR_STR + "Unable to remove log files, will try next time:" + ex.Message + "\r\n");
                                 }
                         }
                         catch (Exception ex)
                         {
-                            _logBuf.Append("Unable to create log files,Console Mode only！Error：" + ex.Message + "\r\n");
+                            _logBuf.Append(INTERNAL_ERROR_STR + "Unable to create log files, Console Mode only！Error:" + ex.Message + "\r\n");
                             LogModes = LogMode.Console;
                         }
                     }
