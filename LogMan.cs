@@ -38,9 +38,20 @@ namespace Wima.Log
         /// </summary>
         public static int LogRenewalPeriodInHour = 2;
         /// <summary>
-        /// SyncRoot,for preventing race condition internally or externally.
+        /// For preventing race condition during building LogLine
         /// </summary>
-        public readonly object SyncRoot = new object();
+        protected readonly object syncLogLine = new object();
+
+        /// <summary>
+        /// For preventing race condition during accessing LogBuf
+        /// </summary>
+        protected readonly object syncLogBuf = new object();
+
+        /// <summary>
+        /// For preventing race condition during writing log to file
+        /// </summary>
+        protected readonly object syncLogWriter = new object();
+
 
         protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
         /// <summary>
@@ -174,7 +185,7 @@ namespace Wima.Log
         {
             get
             {
-                lock (SyncRoot) return _logBuf.ToString();
+                lock (syncLogBuf) return _logBuf.ToString();
             }
         }
 
@@ -296,10 +307,10 @@ namespace Wima.Log
             var posSep = Name.LastIndexOf(Path.DirectorySeparatorChar) + 1;
             var logName = posSep >= 0 ? Name.Substring(posSep, Name.Length - posSep) : Name;
 
-            lock (SyncRoot)
+            lock (syncLogLine)
             {
                 _logLineBuilder.Clear();
-                _logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level : "")}\t{message?.ToString()}" +
+                _logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message?.ToString()}" +
                     $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex?.Message + "\r\n-> " + ex?.InnerException?.Message : "") + Environment.NewLine}");
 
                 if (LogModes.HasFlag(LogMode.StackTrace))
@@ -313,10 +324,13 @@ namespace Wima.Log
 
                 _logLine = _logLineBuilder.ToString();
 
+            }
+
+            lock (syncLogBuf)
+            {
                 if (_logBuf.Length > DefaultMaxBufferLength) _logBuf.Remove(DefaultMaxBufferLength - 4096, 4096);
                 if (_logLine.Contains(LINE_REPLACEMENT_PREFIX) && (_firstNL = _logBuf.ToString().IndexOf(Environment.NewLine)) > 0)
                     _logBuf.Remove(0, _firstNL + Environment.NewLine.Length);  //remove first line from begining of _logBuf
-
                 _logBuf.Insert(0, _logLine);
             }
 
@@ -336,7 +350,7 @@ namespace Wima.Log
                     {
                         if (i > 0)
                         {
-                            lock (SyncRoot) _logBuf.Insert(0, INTERNAL_ERROR_STR + "Bad log stream:" + ex2.Message);
+                            lock (syncLogBuf) _logBuf.Insert(0, INTERNAL_ERROR_STR + "Bad log stream:" + ex2.Message);
                             break;
                         }
                     }
@@ -356,7 +370,7 @@ namespace Wima.Log
         {
             DateTime now = DateTime.Now;
             if (LogRenewalPeriodInHour == 1 || ((int)(now - StartedAt).TotalHours) % LogRenewalPeriodInHour == 0 || _logWriter == null)
-                lock (SyncRoot)
+                lock (syncLogWriter)
                 {
                     string nextLogPath = GetNextLogPath(now);
                     if (LogModes.HasFlag(LogMode.Native) && LogPath != nextLogPath)
@@ -384,12 +398,12 @@ namespace Wima.Log
                                 }
                                 catch (Exception ex)
                                 {
-                                    _logBuf.Append(INTERNAL_ERROR_STR + "Unable to remove log files, will try next time:" + ex.Message + "\r\n");
+                                    lock (syncLogBuf) _logBuf.Append(INTERNAL_ERROR_STR + "Unable to remove log files, will try next time:" + ex.Message + "\r\n");
                                 }
                         }
                         catch (Exception ex)
                         {
-                            _logBuf.Append(INTERNAL_ERROR_STR + "Unable to create log files, Console Mode only！Error:" + ex.Message + "\r\n");
+                            lock (syncLogBuf) _logBuf.Append(INTERNAL_ERROR_STR + "Unable to create log files, Console Mode only！Error:" + ex.Message + "\r\n");
                             LogModes = LogMode.Console;
                         }
                     }
