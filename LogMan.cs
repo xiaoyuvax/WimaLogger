@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace Wima.Log
 {
@@ -17,7 +18,8 @@ namespace Wima.Log
         Native = 0b10,
         Console = 0b100,
         StackTrace = 0b1000,
-        Verbose = 0b10000
+        Verbose = 0b10000,
+        ElasticSearch = 0b100000
     }
 
     public class LogMan : AbstractLogger, IDisposable
@@ -37,6 +39,7 @@ namespace Wima.Log
         /// Logfile Renewal Period(in hour)
         /// </summary>
         public static int LogRenewalPeriodInHour = 2;
+
         /// <summary>
         /// For preventing race condition during building LogLine
         /// </summary>
@@ -52,8 +55,8 @@ namespace Wima.Log
         /// </summary>
         protected readonly object syncLogWriter = new object();
 
-
         protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
+
         /// <summary>
         /// Newline + Return pos for the first line.
         /// </summary>
@@ -85,7 +88,6 @@ namespace Wima.Log
         /// </summary>
         public bool ShowLevel { get; set; }
 
-
         /// <summary>
         /// Show Datetime in loglines or not
         /// </summary>
@@ -101,12 +103,10 @@ namespace Wima.Log
         /// </summary>
         public bool ShowLogName { get; set; }
 
-
         public LogMan(string logName, LogLevel logLevel = LogLevel.All, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
         {
             StartedAt = DateTime.Now;
             LogModes = GlobalLogModes;
-
 
             if (LogModes.HasFlag(LogMode.CommonLog))
             {
@@ -137,8 +137,6 @@ namespace Wima.Log
 
             Info("LogMan - Ready!");
         }
-
-
 
         public LogMan(Type type, LogLevel logLevel = LogLevel.All, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
             : this(type.Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
@@ -189,7 +187,6 @@ namespace Wima.Log
             }
         }
 
-
         /// <summary>
         /// Time format for log file
         /// </summary>
@@ -209,24 +206,50 @@ namespace Wima.Log
         /// Path for current instance
         /// </summary>
         public string LogPath { get; private set; }
+
         public string Name
         {
             get => _name;
             set
             {
-                _name = value;
+                var v = value;
                 Path.GetInvalidFileNameChars()
                     .Where(i => i != Path.DirectorySeparatorChar)
-                    .ToList().ForEach(i => _name = _name.Replace(i, '_'));
+                    .ToList().ForEach(i => v = v.Replace(i, '_'));
+                _name = v;
+                v = ESGlobalIndexPrefix + ESIndexPrefix + _name;
+
+                foreach (char c in invalidUrlChar) v = v.Replace(c, '_');
+                _esIndexName = v;
             }
         }
+
+        /// <summary>
+        /// 无效的URL字符
+        /// </summary>
+        private static string invalidUrlChar { get; } = new string(Path.GetInvalidFileNameChars()) + new string(Path.GetInvalidPathChars());
+
+        private string _esIndexName;
 
         /// <summary>
         /// StreamWriter for writing
         /// </summary>
         private StreamWriter _logWriter { get; set; }
 
+        private static ESService _eSService { get; set; }
+
         private ILog CommonLogger { get; set; } = null;
+
+        /// <summary>
+        /// 初始化全局的ElasticSearch客户端
+        /// </summary>
+        /// <param name="config"></param>
+        /// <returns></returns>
+        public static bool InitElasticSearch(ESConfig config, string globalIndexPrefix = null)
+        {
+            if (globalIndexPrefix != null) ESGlobalIndexPrefix = globalIndexPrefix;
+            return (_eSService = new ESService(config)).Client != null;
+        }
 
         /// <summary>
         /// Get LogRoot path once
@@ -245,6 +268,24 @@ namespace Wima.Log
         public static void SetLogRoot2CodeBase() => SetGlobalLogRoot(AppDomain.CurrentDomain.BaseDirectory);
 
         /// <summary>
+        /// Custom Elastic Search IndexName Prefix for all instance,will be prefixed to all instance if not null or empty,which will be directly added to the front of each indexName;
+        /// Change this property will not timely change the EsIndexName property.
+        /// </summary>
+        public static string ESGlobalIndexPrefix { get; set; }
+
+
+        /// <summary>
+        /// Elastic Search IndexName Prefix for current instance, will be prefixed after GlobalIndexPrefix
+        /// </summary>
+        public string ESIndexPrefix { get; set; }
+
+        /// <summary>
+        /// Cached Elastic Search IndexName,to avoid calculating the IndexName from time to time.
+        /// This property would not be updated after ESIndexPrefix, but will be updated upon setting Name value.
+        /// </summary>
+        public string EsIndexName => _esIndexName;
+
+        /// <summary>
         /// Unregister Logman from Loggers Dictionary, call this method when dispose the object associated with a logman instance.
         /// </summary>
         /// <returns></returns>
@@ -258,8 +299,6 @@ namespace Wima.Log
 
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
         {
-
-
             bool useCommonLog() => LogModes.HasFlag(LogMode.CommonLog) && CommonLogger != null;
 
             switch (level)
@@ -324,8 +363,33 @@ namespace Wima.Log
 
                 _logLine = _logLineBuilder.ToString();
 
+                //Post to ElasticSearch
+                if (LogModes.HasFlag(LogMode.ElasticSearch) && _eSService != null)
+                {
+                    var T = _eSService.ExistsIndex(EsIndexName);
+                    if (T.Wait(1000) == true)
+                    {
+                        Task<Nest.CreateIndexResponse> T2 = null;
+                        if (T.Result == false)
+                        {
+                            //索引不存在，就创建索引。
+                            T2 = _eSService.CreateIndex(EsIndexName);
+                        }
+
+                        if (T.Result == true || (T2 != null && T2.Wait(1000) == true && T2.Result.Acknowledged))
+                        {
+                            var T3 = _eSService.CreateDocument(
+                              new LogLine(DateTime.Now.Ticks, DateTime.Now,
+                              level.ToString(),
+                              message?.ToString(),
+                              ex?.Message + "\r\n-> " + ex?.InnerException?.Message,
+                              LogModes.HasFlag(LogMode.StackTrace) ? _stackChain.ToString() : null), EsIndexName);
+                        }
+                    }
+                }
             }
 
+            //Update LogBuf:Cut tail and process Replacement Mark "<<" in _logBuf
             lock (syncLogBuf)
             {
                 if (_logBuf.Length > DefaultMaxBufferLength) _logBuf.Remove(DefaultMaxBufferLength - 4096, 4096);
@@ -359,6 +423,10 @@ namespace Wima.Log
             if (LogModes.HasFlag(LogMode.Console)) Console.Write((ShowLogName ? Name + "\t" : "") + _logLine);
         }
 
+        /// <summary>
+        /// Directly put object to Elastic Search, if activated.
+        /// </summary>
+        public async Task<Nest.CreateResponse> ESPut<T>(T obj) where T : class => await _eSService?.CreateDocument<T>(obj, EsIndexName);
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
 
         private string GetNextLogPath(DateTime? now = null) => LogRoot + Name + "_" + (now ?? DateTime.Now).ToString(LogFileNameTimeFormat) + ".log";
