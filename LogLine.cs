@@ -4,5 +4,5 @@ using System.Text;
 
 namespace Wima.Log
 {
-   public record LogLine(long id, DateTime logTime, string logLevel, string logMsg, string verBoseMsg, string stackTrace = null);
+   public record LogLine(long id, DateTime timestamp, string logLevel, string logMsg, string verBoseMsg, string stackTrace = null);
 }

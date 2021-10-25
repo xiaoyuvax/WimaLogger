@@ -4,9 +4,7 @@ using Nest;
 using System;
 using System.Collections.Concurrent;
 using System.Linq;
-using System.Net;
 using System.Threading.Tasks;
-
 
 namespace System.Runtime.CompilerServices
 {
@@ -65,23 +63,33 @@ namespace Wima.Log
         #region 索引
 
         /// <summary>
-        /// 判断索引是否存在
+        /// 索引本地缓存的最大时间，超时则清理
+        /// </summary>
+
+        public static int MaxAgeOfIndexCacheInMinutes = 30;
+
+        /// <summary>
+        /// 判断索引是否存在(优先检测缓存)
         /// </summary>
         /// <param name="indexName"></param>
         /// <param name="selector"></param>
         /// <returns></returns>
-        public Task<bool> ExistsIndex(string indexName, Func<IndexExistsDescriptor, IIndexExistsRequest> selector = null)
+        public bool ExistsIndex(string indexName, Func<IndexExistsDescriptor, IIndexExistsRequest> selector = null)
         {
             indexName = indexName.ToLower();
             bool existed = false;
-            if (ExistedIndexCache.TryGetValue(indexName, out _)) existed = true;
+
+
+            if (ExistedIndexCache.TryGetValue(indexName, out DateTime dt) && (DateTime.Now - dt).TotalMinutes < MaxAgeOfIndexCacheInMinutes)
+                existed = true;
             else
             {
-                var existResponse = this.Client.Indices.Exists(indexName, selector);
-                existed = existResponse.Exists;
+                existed = this.Client.Indices.Exists(indexName, selector).Exists;
                 if (existed) ExistedIndexCache.AddOrUpdate(indexName, DateTime.Now, (k, v) => DateTime.Now);
+                else ExistedIndexCache.TryRemove(indexName, out _);
             }
-            return Task.FromResult(existed);
+
+            return existed;
         }
 
         private ConcurrentDictionary<string, DateTime> ExistedIndexCache = new ConcurrentDictionary<string, DateTime>();
@@ -124,28 +132,42 @@ namespace Wima.Log
         #region -- 文档
 
         /// <summary>
-        /// 创建文档
+        /// 创建文档。会先检查索引是否存在，然后再创建。
+        /// </summary>
+        /// <typeparam name="TEntity"></typeparam>
+        /// <param name="entity"></param>
+        /// <param name="indexName"></param>
+        /// <returns>如果索引不存在且创建失败则可能返回null</returns>
+        public async Task<CreateResponse> CreateDocument<T>(T entity, string indexName) where T : class
+        {
+            CreateResponse response = null;
+
+            //索引不存在，就创建索引。
+            bool hasIndex = ExistsIndex(indexName);
+            if (hasIndex) response = await Client.CreateAsync(entity, t => t.Index(indexName.ToLower()));
+            else response = await CreateDataStream(indexName)
+                    .ContinueWith(t => Client.CreateAsync(entity, t => t.Index(indexName.ToLower()))).Result;
+
+            return response;
+        }
+
+        /// <summary>
+        /// 创建数据流
         /// </summary>
         /// <typeparam name="TEntity"></typeparam>
         /// <param name="entity"></param>
         /// <param name="indexName"></param>
         /// <returns></returns>
-        public async Task<CreateResponse> CreateDocument<TEntity>(TEntity entity, string indexName) where TEntity : class
+        public async Task<CreateDataStreamResponse> CreateDataStream(string dataStreamName) => await this.Client.Indices.CreateDataStreamAsync(dataStreamName);
+
+        /// <summary>
+        /// 获取文档
+        /// </summary>
+        public async Task<ISearchResponse<T>> GetDocument<T>(string indexName, int startIndex = 0, int size = 10) where T : class
         {
-            CreateResponse response = await this.Client.CreateAsync(entity, t => t.Index(indexName.ToLower()));
+            var response = await this.Client.SearchAsync<T>(r => r.Index(indexName.ToLower()).From(startIndex).Size(size));
             return response;
         }
-
-
-        ///// <summary>
-        ///// 获取文档
-        ///// </summary>        
-        //public async Task<CreateResponse> GetDocument<T>(T entity, string indexName) where T : class
-        //{
-        //    //CreateResponse response = await this.Client.SearchAsync()
-        //    //return response;
-        //}
-
 
         #endregion -- 文档
     }

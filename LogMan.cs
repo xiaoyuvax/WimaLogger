@@ -220,7 +220,7 @@ namespace Wima.Log
                 v = ESGlobalIndexPrefix + ESIndexPrefix + _name;
 
                 foreach (char c in invalidUrlChar) v = v.Replace(c, '_');
-                _esIndexName = v;
+                _esIndexName = v.ToLower(); ;
             }
         }
 
@@ -275,9 +275,11 @@ namespace Wima.Log
 
 
         /// <summary>
-        /// Elastic Search IndexName Prefix for current instance, will be prefixed after GlobalIndexPrefix
+        /// Elastic Search IndexName Prefix for current instance, will be prefixed after GlobalIndexPrefix.
+        /// Default value = "log_", and can be changed per instance.
+        /// 
         /// </summary>
-        public string ESIndexPrefix { get; set; }
+        public string ESIndexPrefix { get; set; } = "log_";
 
         /// <summary>
         /// Cached Elastic Search IndexName,to avoid calculating the IndexName from time to time.
@@ -365,28 +367,12 @@ namespace Wima.Log
 
                 //Post to ElasticSearch
                 if (LogModes.HasFlag(LogMode.ElasticSearch) && _eSService != null)
-                {
-                    var T = _eSService.ExistsIndex(EsIndexName);
-                    if (T.Wait(1000) == true)
-                    {
-                        Task<Nest.CreateIndexResponse> T2 = null;
-                        if (T.Result == false)
-                        {
-                            //索引不存在，就创建索引。
-                            T2 = _eSService.CreateIndex(EsIndexName);
-                        }
-
-                        if (T.Result == true || (T2 != null && T2.Wait(1000) == true && T2.Result.Acknowledged))
-                        {
-                            var T3 = _eSService.CreateDocument(
-                              new LogLine(DateTime.Now.Ticks, DateTime.Now,
-                              level.ToString(),
-                              message?.ToString(),
-                              ex?.Message + "\r\n-> " + ex?.InnerException?.Message,
-                              LogModes.HasFlag(LogMode.StackTrace) ? _stackChain.ToString() : null), EsIndexName);
-                        }
-                    }
-                }
+                    _ = _eSService.CreateDocument(
+                      new LogLine(DateTime.Now.Ticks, DateTime.Now,
+                      level.ToString(),
+                      message?.ToString(),
+                      ex?.Message + "\r\n-> " + ex?.InnerException?.Message,
+                      LogModes.HasFlag(LogMode.StackTrace) ? _stackChain.ToString() : null), EsIndexName);
             }
 
             //Update LogBuf:Cut tail and process Replacement Mark "<<" in _logBuf
@@ -427,6 +413,13 @@ namespace Wima.Log
         /// Directly put object to Elastic Search, if activated.
         /// </summary>
         public async Task<Nest.CreateResponse> ESPut<T>(T obj) where T : class => await _eSService?.CreateDocument<T>(obj, EsIndexName);
+
+        /// <summary>
+        /// Directly put object to Elastic Search, if activated.
+        /// </summary>
+        public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10) where T : class => await _eSService?.GetDocument<T>(indexName, startIndex, size);
+
+
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
 
         private string GetNextLogPath(DateTime? now = null) => LogRoot + Name + "_" + (now ?? DateTime.Now).ToString(LogFileNameTimeFormat) + ".log";
