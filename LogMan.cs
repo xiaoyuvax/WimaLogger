@@ -416,8 +416,9 @@ namespace Wima.Log
 
         /// <summary>
         /// Directly put object to Elastic Search, if activated.
+        /// This method sort with default field of "@timestamp" which is a compulsory field for ES datastream.
         /// </summary>
-        public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10) where T : class => await _eSService?.GetDocument<T>(indexName, startIndex, size);
+        public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp") where T : class => await _eSService?.GetDocument<T>(indexName, startIndex, size);
 
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);

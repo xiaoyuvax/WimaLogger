@@ -163,10 +163,12 @@ namespace Wima.Log
         /// <summary>
         /// 获取文档
         /// </summary>
-        public async Task<ISearchResponse<T>> GetDocument<T>(string indexName, int startIndex = 0, int size = 10) where T : class
+        public async Task<ISearchResponse<T>> GetDocument<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp") where T : class
         {
-            var response = await this.Client.SearchAsync<T>(r => r.Index(indexName.ToLower()).From(startIndex).Size(size));
-            return response;
+            return await this.Client.SearchAsync<T>(r => r.Index(indexName.ToLower())
+           .Sort(i => sortDescending ? i.Descending(new Field(sortField)) : i.Ascending(new Field(sortField)))
+           .From(startIndex)
+           .Size(size));
         }
 
         #endregion -- 文档
