@@ -146,7 +146,7 @@ namespace Wima.Log
             bool hasIndex = ExistsIndex(indexName);
             if (hasIndex) response = await Client.CreateAsync(entity, t => t.Index(indexName.ToLower()));
             else response = await CreateDataStream(indexName)
-                    .ContinueWith(t => Client.CreateAsync(entity, t => t.Index(indexName.ToLower()))).Result;
+                    .ContinueWith(t => t.Result?.IsValid == true ? Client.CreateAsync(entity, t => t.Index(indexName.ToLower())).Result : null);
 
             return response;
         }

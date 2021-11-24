@@ -41,11 +41,6 @@ namespace Wima.Log
         public static int LogRenewalPeriodInHour = 2;
 
         /// <summary>
-        /// For preventing race condition during building LogLine
-        /// </summary>
-        protected readonly object syncLogLine = new object();
-
-        /// <summary>
         /// For preventing race condition during accessing LogBuf
         /// </summary>
         protected readonly object syncLogBuf = new object();
@@ -57,20 +52,11 @@ namespace Wima.Log
 
         protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
 
-        /// <summary>
-        /// Newline + Return pos for the first line.
-        /// </summary>
-        private int _firstNL;
 
-        /// <summary>
-        /// For construction of a line of log
-        /// </summary>
-        private string _logLine;
 
-        /// <summary>
-        /// Log text builder
-        /// </summary>
-        private StringBuilder _logLineBuilder = new StringBuilder(), _stackChain = new StringBuilder();
+
+
+
 
         /// <summary>
         /// Name of the Log,should be unique among other instances.
@@ -348,34 +334,36 @@ namespace Wima.Log
             var posSep = Name.LastIndexOf(Path.DirectorySeparatorChar) + 1;
             var logName = posSep >= 0 ? Name.Substring(posSep, Name.Length - posSep) : Name;
 
-            lock (syncLogLine)
+            //Construction of logline 
+            StringBuilder _logLineBuilder = new StringBuilder();
+
+            _logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message?.ToString()}" +
+                $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex?.Message + "\r\n-> " + ex?.InnerException?.Message : "") + Environment.NewLine}");
+
+            StringBuilder _stackChain = null;
+            if (LogModes.HasFlag(LogMode.StackTrace))
             {
-                _logLineBuilder.Clear();
-                _logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message?.ToString()}" +
-                    $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex?.Message + "\r\n-> " + ex?.InnerException?.Message : "") + Environment.NewLine}");
-
-                if (LogModes.HasFlag(LogMode.StackTrace))
-                {
-                    _stackChain.Clear();
-                    _stackChain.Append(" <- ");
-                    new StackTrace().GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith(".")).ToList().ForEach(i => _stackChain.Append("/" + i));
-                    _stackChain.Append(Environment.NewLine + Environment.NewLine);
-                    _logLineBuilder.Append(_stackChain);
-                }
-
-                _logLine = _logLineBuilder.ToString();
-
-                //Post to ElasticSearch
-                if (LogModes.HasFlag(LogMode.ElasticSearch) && _eSService != null)
-                    _ = _eSService.CreateDocument(
-                      new LogLine(DateTime.Now.Ticks, DateTime.Now,
-                      level.ToString(),
-                      message?.ToString(),
-                      ex?.Message + "\r\n-> " + ex?.InnerException?.Message,
-                      LogModes.HasFlag(LogMode.StackTrace) ? _stackChain.ToString() : null), EsIndexName);
+                _stackChain = new StringBuilder();
+                _stackChain.Append(" <- ");
+                new StackTrace().GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith(".")).ToList().ForEach(i => _stackChain.Append("/" + i));
+                _stackChain.Append(Environment.NewLine + Environment.NewLine);
+                _logLineBuilder.Append(_stackChain);
             }
 
+            string _logLine = _logLineBuilder.ToString();
+
+            //Post to ElasticSearch
+            if (LogModes.HasFlag(LogMode.ElasticSearch) && _eSService != null)
+                Task.Run(() => _eSService.CreateDocument(
+                  new LogLine(DateTime.Now.Ticks, DateTime.Now,
+                  level.ToString(),
+                  message?.ToString(),
+                  ex?.Message + "\r\n-> " + ex?.InnerException?.Message,
+                  LogModes.HasFlag(LogMode.StackTrace) ? _stackChain?.ToString() : null), EsIndexName));
+
+
             //Update LogBuf:Cut tail and process Replacement Mark "<<" in _logBuf
+            int _firstNL;
             lock (syncLogBuf)
             {
                 if (_logBuf.Length > DefaultMaxBufferLength) _logBuf.Remove(DefaultMaxBufferLength - 4096, 4096);
