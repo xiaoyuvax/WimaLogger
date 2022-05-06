@@ -92,14 +92,14 @@ namespace Wima.Log
         public LogMan(string logName, LogLevel logLevel = LogLevel.All, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
         {
             StartedAt = DateTime.Now;
-            LogModes = GlobalLogModes;
+            LogModes = GlobalLogMode;
 
             if (LogModes.HasFlag(LogMode.CommonLog))
             {
                 try { CommonLogger = GetLogger(logName); }
                 catch (Exception ex)
                 {
-                    LogModes = (GlobalLogModes ^ LogMode.CommonLog) | LogMode.Native;
+                    LogModes = (GlobalLogMode ^ LogMode.CommonLog) | LogMode.Native;
                     Info(INTERNAL_ERROR_STR + "Failure initalizing CommonLog,use native mode instead!", ex);
                 }
             }
@@ -121,7 +121,7 @@ namespace Wima.Log
                 return this;
             });
 
-            Info("LogMan - Ready!");
+            Info("[LogMan]\tOK!");
         }
 
         public LogMan(Type type, LogLevel logLevel = LogLevel.All, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
@@ -137,7 +137,7 @@ namespace Wima.Log
         /// <summary>
         /// This property evaluates default LogModes property of new instance.
         /// </summary>
-        public static LogMode GlobalLogModes { get; set; } = LogMode.Console;
+        public static LogMode GlobalLogMode { get; set; } = LogMode.Console;
 
         /// <summary>
         /// Reggistered loggers
