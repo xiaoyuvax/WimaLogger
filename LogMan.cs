@@ -43,14 +43,14 @@ namespace Wima.Log
         /// <summary>
         /// For preventing race condition during accessing LogBuf
         /// </summary>
-        protected readonly object syncLogBuf = new object();
+        protected readonly object syncLogBuf = new();
 
         /// <summary>
         /// For preventing race condition during writing log to file
         /// </summary>
-        protected readonly object syncLogWriter = new object();
+        protected readonly object syncLogWriter = new();
 
-        protected StringBuilder _logBuf = new StringBuilder(DefaultMaxBufferLength);
+        protected StringBuilder _logBuf = new(DefaultMaxBufferLength);
 
 
 
@@ -335,7 +335,7 @@ namespace Wima.Log
             var logName = posSep >= 0 ? Name.Substring(posSep, Name.Length - posSep) : Name;
 
             //Construction of logline 
-            StringBuilder _logLineBuilder = new StringBuilder();
+            StringBuilder _logLineBuilder = new();
 
             _logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message?.ToString()}" +
                 $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex?.Message + "\r\n-> " + ex?.InnerException?.Message : "") + Environment.NewLine}");

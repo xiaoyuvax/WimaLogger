@@ -56,8 +56,8 @@ namespace Wima.Log
             var settings = new ConnectionSettings(new StaticConnectionPool(uris))
                 .BasicAuthentication(esConfig.User, esConfig.Pwd)//用户名和密码
                 .RequestTimeout(TimeSpan.FromSeconds(30));//请求配置参数
-            this.Client = new ElasticClient(settings);//linq请求客户端初始化
-            return this.Client;
+            Client = new ElasticClient(settings);//linq请求客户端初始化
+            return Client;
         }
 
         #region 索引
@@ -84,7 +84,7 @@ namespace Wima.Log
                 existed = true;
             else
             {
-                existed = this.Client.Indices.Exists(indexName, selector).Exists;
+                existed = Client.Indices.Exists(indexName, selector).Exists;
                 if (existed) ExistedIndexCache.AddOrUpdate(indexName, DateTime.Now, (k, v) => DateTime.Now);
                 else ExistedIndexCache.TryRemove(indexName, out _);
             }
@@ -92,7 +92,7 @@ namespace Wima.Log
             return existed;
         }
 
-        private ConcurrentDictionary<string, DateTime> ExistedIndexCache = new ConcurrentDictionary<string, DateTime>();
+        private ConcurrentDictionary<string, DateTime> ExistedIndexCache = new();
 
         /// <summary>
         /// 创建索引
@@ -112,7 +112,7 @@ namespace Wima.Log
                     NumberOfShards = numberOfShards
                 }
             };
-            CreateIndexResponse response = await this.Client.Indices.CreateAsync(indexName, x => x.InitializeUsing(indexState).Map(m => m.AutoMap()));
+            CreateIndexResponse response = await Client.Indices.CreateAsync(indexName, x => x.InitializeUsing(indexState).Map(m => m.AutoMap()));
             return response;
         }
 
@@ -122,7 +122,7 @@ namespace Wima.Log
         /// <param name="indexName"></param>
         public DeleteIndexResponse DeleteIndex(string indexName)
         {
-            DeleteIndexResponse response = this.Client.Indices.Delete(indexName);
+            DeleteIndexResponse response = Client.Indices.Delete(indexName);
 
             return response;
         }
@@ -158,14 +158,14 @@ namespace Wima.Log
         /// <param name="entity"></param>
         /// <param name="indexName"></param>
         /// <returns></returns>
-        public async Task<CreateDataStreamResponse> CreateDataStream(string dataStreamName) => await this.Client.Indices.CreateDataStreamAsync(dataStreamName);
+        public async Task<CreateDataStreamResponse> CreateDataStream(string dataStreamName) => await Client.Indices.CreateDataStreamAsync(dataStreamName);
 
         /// <summary>
         /// 获取文档
         /// </summary>
         public async Task<ISearchResponse<T>> GetDocument<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp") where T : class
         {
-            return await this.Client.SearchAsync<T>(r => r.Index(indexName.ToLower())
+            return await Client.SearchAsync<T>(r => r.Index(indexName.ToLower())
            .Sort(i => sortDescending ? i.Descending(new Field(sortField)) : i.Ascending(new Field(sortField)))
            .From(startIndex)
            .Size(size));
