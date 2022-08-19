@@ -52,12 +52,6 @@ namespace Wima.Log
 
         protected StringBuilder _logBuf = new(DefaultMaxBufferLength);
 
-
-
-
-
-
-
         /// <summary>
         /// Name of the Log,should be unique among other instances.
         /// </summary>
@@ -89,7 +83,7 @@ namespace Wima.Log
         /// </summary>
         public bool ShowLogName { get; set; }
 
-        public LogMan(string logName, LogLevel logLevel = LogLevel.All, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
+        public LogMan(string logName, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
         {
             StartedAt = DateTime.Now;
             LogModes = GlobalLogMode;
@@ -104,7 +98,8 @@ namespace Wima.Log
                 }
             }
 
-            LogLevel = logLevel;
+            LogLevel = logLevel ?? GlobalLogLevel;
+
             ShowLevel = showLevel;
             ShowDateTime = showDateTime;
             ShowLogName = showLogName;
@@ -124,11 +119,11 @@ namespace Wima.Log
             Info("[LogMan]\tOK!");
         }
 
-        public LogMan(Type type, LogLevel logLevel = LogLevel.All, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
+        public LogMan(Type type, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
             : this(type.Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
         { }
 
-        public LogMan(object obj, LogLevel logLevel = LogLevel.All, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
+        public LogMan(object obj, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
             : this(obj.GetType().Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
         { }
 
@@ -138,6 +133,11 @@ namespace Wima.Log
         /// This property evaluates default LogModes property of new instance.
         /// </summary>
         public static LogMode GlobalLogMode { get; set; } = LogMode.Console;
+
+        /// <summary>
+        /// This property evaluates default LogLevel property of new instance.
+        /// </summary>
+        public static LogLevel GlobalLogLevel { get; set; } = LogLevel.All;
 
         /// <summary>
         /// Reggistered loggers
@@ -150,17 +150,18 @@ namespace Wima.Log
         public static string LogRoot { get; set; } = ResetLogRoot();
 
         public static DateTime StartedAt { get; private set; }
-        public override bool IsDebugEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Debug);
 
-        public override bool IsErrorEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Error);
+        public override bool IsDebugEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Debug);
 
-        public override bool IsFatalEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Fatal);
+        public override bool IsErrorEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Error);
 
-        public override bool IsInfoEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Info);
+        public override bool IsFatalEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Fatal);
 
-        public override bool IsTraceEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Trace);
+        public override bool IsInfoEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Info);
 
-        public override bool IsWarnEnabled => LogLevel.HasFlag(LogLevel.All) || LogLevel.HasFlag(LogLevel.Warn);
+        public override bool IsTraceEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Trace);
+
+        public override bool IsWarnEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Warn);
 
         /// <summary>
         /// In-memory buffer of recent logs, for quick query of rencent logs.
@@ -227,7 +228,7 @@ namespace Wima.Log
         private ILog CommonLogger { get; set; } = null;
 
         /// <summary>
-        /// 初始化全局的ElasticSearch客户端
+        /// Intialized Global ElasticSearch Client
         /// </summary>
         /// <param name="config"></param>
         /// <returns></returns>
@@ -254,21 +255,20 @@ namespace Wima.Log
         public static void SetLogRoot2CodeBase() => SetGlobalLogRoot(AppDomain.CurrentDomain.BaseDirectory);
 
         /// <summary>
-        /// Custom Elastic Search IndexName Prefix for all instance,will be prefixed to all instance if not null or empty,which will be directly added to the front of each indexName;
+        /// Custom ElasticSearch IndexName Prefix for all instance,will be prefixed to all instance if not null or empty,which will be directly added to the front of each indexName;
         /// Change this property will not timely change the EsIndexName property.
         /// </summary>
         public static string ESGlobalIndexPrefix { get; set; }
 
-
         /// <summary>
         /// Elastic Search IndexName Prefix for current instance, will be prefixed after GlobalIndexPrefix.
         /// Default value = "log_", and can be changed per instance.
-        /// 
+        ///
         /// </summary>
         public string ESIndexPrefix { get; set; } = "log_";
 
         /// <summary>
-        /// Cached Elastic Search IndexName,to avoid calculating the IndexName from time to time.
+        /// Cached ElasticSearch IndexName,to avoid calculating the IndexName from time to time.
         /// This property would not be updated after ESIndexPrefix, but will be updated upon setting Name value.
         /// </summary>
         public string EsIndexName => _esIndexName;
@@ -327,6 +327,12 @@ namespace Wima.Log
                         else CommonLogger.Fatal(message, ex);
                     break;
 
+                case LogLevel.Trace when !IsTraceEnabled:
+                case LogLevel.Debug when !IsDebugEnabled:
+                case LogLevel.Info when !IsInfoEnabled:
+                case LogLevel.Warn when !IsWarnEnabled:
+                case LogLevel.Error when !IsErrorEnabled:
+                case LogLevel.Fatal when !IsFatalEnabled:
                 default:
                     return;
             }
@@ -334,7 +340,7 @@ namespace Wima.Log
             var posSep = Name.LastIndexOf(Path.DirectorySeparatorChar) + 1;
             var logName = posSep >= 0 ? Name.Substring(posSep, Name.Length - posSep) : Name;
 
-            //Construction of logline 
+            //Construction of logline
             StringBuilder _logLineBuilder = new();
 
             _logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message?.ToString()}" +
@@ -360,7 +366,6 @@ namespace Wima.Log
                   message?.ToString(),
                   ex?.Message + "\r\n-> " + ex?.InnerException?.Message,
                   LogModes.HasFlag(LogMode.StackTrace) ? _stackChain?.ToString() : null), EsIndexName));
-
 
             //Update LogBuf:Cut tail and process Replacement Mark "<<" in _logBuf
             int _firstNL;
@@ -407,7 +412,6 @@ namespace Wima.Log
         /// This method sort with default field of "@timestamp" which is a compulsory field for ES datastream.
         /// </summary>
         public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp") where T : class => await _eSService?.GetDocument<T>(indexName, startIndex, size);
-
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
 
