@@ -142,7 +142,7 @@ namespace Wima.Log
         /// <summary>
         /// Reggistered loggers
         /// </summary>
-        public static ConcurrentDictionary<string, LogMan> Loggers { get; private set; } = new ConcurrentDictionary<string, LogMan>();
+        public static ConcurrentDictionary<string, LogMan> Loggers { get; set; } = new ConcurrentDictionary<string, LogMan>();
 
         /// <summary>
         /// Global log root path
