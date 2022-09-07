@@ -87,6 +87,7 @@ namespace Wima.Log
         {
             StartedAt = DateTime.Now;
             LogModes = GlobalLogMode;
+            foreach (char c in Path.GetInvalidFileNameChars()) logName = logName.Replace(c, '-');
 
             if (LogModes.HasFlag(LogMode.CommonLog))
             {
@@ -105,6 +106,7 @@ namespace Wima.Log
             ShowLogName = showLogName;
             DateTimeFormat = dateTimeFormat;
 
+            if (Loggers.ContainsKey(logName)) logName += "@" + GetHashCode().ToString("X2");
             Name = logName;
 
             RenewLogWriter();
