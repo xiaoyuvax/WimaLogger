@@ -206,7 +206,7 @@ namespace Wima.Log
                     .Where(i => i != Path.DirectorySeparatorChar)
                     .ToList().ForEach(i => v = v.Replace(i, '_'));
                 _name = v;
-                v = ESGlobalIndexPrefix + ESIndexPrefix + _name;
+                v = ESGlobalIndexPrefix + ESIndexPrefix + _name;   //TODO:因为要到读取配置的时候才会给ES索引名前缀赋值，所以之前初始化的日志的名称可能会有问题。
 
                 foreach (char c in invalidUrlChar) v = v.Replace(c, '_');
                 _esIndexName = v.ToLower(); ;
@@ -234,6 +234,7 @@ namespace Wima.Log
         /// </summary>
         /// <param name="config"></param>
         /// <returns></returns>
+        /// <remarks>An index template of ESGlobalIndexPrefix must be created in ES for this log mode to work.</remarks>
         public static bool InitElasticSearch(ESConfig config, string globalIndexPrefix = null)
         {
             if (globalIndexPrefix != null) ESGlobalIndexPrefix = globalIndexPrefix;
@@ -362,7 +363,7 @@ namespace Wima.Log
 
             //Post to ElasticSearch
             if (LogModes.HasFlag(LogMode.ElasticSearch) && _eSService != null)
-                Task.Run(() => _eSService.CreateDocument(
+                Task.Run(() => _eSService.IndexDS(
                   new LogLine(DateTime.Now.Ticks, DateTime.Now,
                   level.ToString(),
                   message?.ToString(),
@@ -407,7 +408,7 @@ namespace Wima.Log
         /// <summary>
         /// Directly put object to Elastic Search, if activated.
         /// </summary>
-        public async Task<Nest.CreateResponse> ESPut<T>(T obj) where T : class => await _eSService?.CreateDocument<T>(obj, EsIndexName);
+        public async Task<Nest.CreateResponse> ESPut<T>(T obj) where T : class => await _eSService?.IndexDS<T>(obj, EsIndexName);
 
         /// <summary>
         /// Directly put object to Elastic Search, if activated.
