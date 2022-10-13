@@ -119,15 +119,19 @@ namespace Wima.Log
         /// <returns></returns>
         public bool EnsureDS(string indexName, bool clean = false)
         {
-            bool hasIndex = ExistsIndex(indexName);
-            if (clean && hasIndex)
+            bool hasIndex;
+            lock (Client)
             {
-                if (Client.Indices.DeleteDataStream(indexName).IsValid) hasIndex = false;
-            }
-            if (!hasIndex)
-            {
-                Client.Indices.CreateDataStream(indexName);
                 hasIndex = ExistsIndex(indexName);
+                if (clean && hasIndex)
+                {
+                    if (Client.Indices.DeleteDataStream(indexName).IsValid) hasIndex = false;
+                }
+                if (!hasIndex)
+                {
+                    Client.Indices.CreateDataStream(indexName);
+                    hasIndex = ExistsIndex(indexName);
+                }
             }
 
             return hasIndex;
@@ -266,51 +270,18 @@ namespace Wima.Log
 
         /// <summary>
         /// 在数据流中创建文档。会先检查数据流是否存在，不存在就创建。
+        /// 注意：数据流无法使用ES批量提交。
         /// </summary>
         /// <typeparam name="TEntity"></typeparam>
         /// <param name="entity"></param>
         /// <param name="indexName"></param>
         /// <returns>如果索引不存在且创建失败，暂时缓存或批量提交则可能返回null</returns>
-        public async Task<CreateResponse> IndexDS<T>(T entity, string indexName, bool useCache = false) where T : class
+        public async Task<CreateResponse> IndexDS<T>(T entity, string indexName) where T : class
         {
             CreateResponse response = new FakeCreateResponse(false);
 
             //索引不存在，就创建索引。
-            bool hasIndex = ExistsIndex(indexName);
-            if (hasIndex)
-            {
-                if (useCache)
-                {
-                    if (!CacheBook.TryGetValue(indexName, out ConcurrentDictionary<long, object> docCache)) CacheBook.TryAdd(indexName, docCache = new ConcurrentDictionary<long, object>());
-
-                    if (docCache.Count > 0 && (docCache.Count > MAX_DOC_CACHE_SIZE || (DateTime.Now - new DateTime(docCache.Keys.Max())).TotalSeconds > MAX_DOC_CACHE_WAIT_IN_SECONDS))
-                    {
-                        IndexAll(docCache.Values, indexName, null, 50000, (b, d) => { return null; });
-                        docCache.Clear();
-                    }
-                    else docCache.TryAdd(DateTime.Now.Ticks, entity);
-
-                    response = new FakeCreateResponse(true);
-                }
-                else response = await Client.CreateAsync(entity, t => t.Index(indexName.ToLower()));
-            }
-            else response = await Client.Indices.CreateDataStreamAsync(indexName)
-                    .ContinueWith(t =>
-                    {
-                        if (t.Result?.IsValid == true)
-                            response = Client.CreateAsync(entity, t => t.Index(indexName.ToLower())).Result;
-                        else
-                        {
-                            if (useCache)
-                            {
-                                if (!CacheBook.TryGetValue(indexName, out ConcurrentDictionary<long, object> docCache)) CacheBook.TryAdd(indexName, docCache = new ConcurrentDictionary<long, object>());
-                                docCache.TryAdd(DateTime.Now.Ticks, entity);
-                                response = new FakeCreateResponse(true);
-                            }
-                            else response = new FakeCreateResponse(false);
-                        }
-                        return response;
-                    });
+            if (EnsureDS(indexName)) response = await Client.CreateAsync(entity, t => t.Index(indexName.ToLower()));
 
             return response;
         }

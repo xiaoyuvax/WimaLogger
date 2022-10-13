@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -26,9 +27,10 @@ namespace Wima.Log
     {
         public const string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
         public const string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd HH:mm:ss";
-        public const string DEFAULT_LOGROOT_NAME = "Logs";
+        public const string DEFAULT_LOGROOT_NAME = "logs";
         public const string LINE_REPLACEMENT_PREFIX = "<< ";
         public const string INTERNAL_ERROR_STR = "[LogSvc Internal Error]";
+        public const char ES_INDEX_SEPARATOR = '-';
 
         /// <summary>
         /// Preserve Period in Hour, 0 = forever
@@ -106,13 +108,12 @@ namespace Wima.Log
             ShowLogName = showLogName;
             DateTimeFormat = dateTimeFormat;
 
-            if (Loggers.ContainsKey(logName)) logName += "@" + GetHashCode().ToString("X2");
             Name = logName;
 
             RenewLogWriter();
 
             //Register this Logman instance to a global static dictionary, if new instance use exisiting name, the old record would be overwritten.
-            Loggers.AddOrUpdate(logName, this, (k, v) =>
+            LogBook.AddOrUpdate(logName, this, (k, v) =>
             {
                 v.Dispose();
                 return this;
@@ -144,7 +145,7 @@ namespace Wima.Log
         /// <summary>
         /// Reggistered loggers
         /// </summary>
-        public static ConcurrentDictionary<string, LogMan> Loggers { get; set; } = new ConcurrentDictionary<string, LogMan>();
+        public static ConcurrentDictionary<string, LogMan> LogBook { get; set; } = new ConcurrentDictionary<string, LogMan>();
 
         /// <summary>
         /// Global log root path
@@ -237,7 +238,7 @@ namespace Wima.Log
         /// <remarks>An index template of ESGlobalIndexPrefix must be created in ES for this log mode to work.</remarks>
         public static bool InitElasticSearch(ESConfig config, string globalIndexPrefix = null)
         {
-            if (globalIndexPrefix != null) ESGlobalIndexPrefix = globalIndexPrefix;
+            if (globalIndexPrefix != null) ESGlobalIndexPrefix = globalIndexPrefix + ES_INDEX_SEPARATOR;
             return (_eSService = new ESService(config)).Client != null;
         }
 
@@ -268,7 +269,7 @@ namespace Wima.Log
         /// Default value = "log_", and can be changed per instance.
         ///
         /// </summary>
-        public string ESIndexPrefix { get; set; } = "log_";
+        public string ESIndexPrefix { get; set; } = "logs" + ES_INDEX_SEPARATOR;
 
         /// <summary>
         /// Cached ElasticSearch IndexName,to avoid calculating the IndexName from time to time.
@@ -282,7 +283,7 @@ namespace Wima.Log
         /// <returns></returns>
         public void Dispose()
         {
-            var done = Loggers.TryRemove(Name, out _);
+            var done = LogBook.TryRemove(Name, out _);
             if (done) Info("LogMan Disposed!");
             _logWriter?.Dispose();
             _logWriter = null;
@@ -363,12 +364,12 @@ namespace Wima.Log
 
             //Post to ElasticSearch
             if (LogModes.HasFlag(LogMode.ElasticSearch) && _eSService != null)
-                Task.Run(() => _eSService.IndexDS(
+                Task.Run(() => ESPut(
                   new LogLine(DateTime.Now.Ticks, DateTime.Now,
                   level.ToString(),
                   message?.ToString(),
                   ex?.Message + "\r\n-> " + ex?.InnerException?.Message,
-                  LogModes.HasFlag(LogMode.StackTrace) ? _stackChain?.ToString() : null), EsIndexName));
+                  LogModes.HasFlag(LogMode.StackTrace) ? _stackChain?.ToString() : null)));
 
             //Update LogBuf:Cut tail and process Replacement Mark "<<" in _logBuf
             int _firstNL;
@@ -408,7 +409,11 @@ namespace Wima.Log
         /// <summary>
         /// Directly put object to Elastic Search, if activated.
         /// </summary>
-        public async Task<Nest.CreateResponse> ESPut<T>(T obj) where T : class => await _eSService?.IndexDS<T>(obj, EsIndexName);
+        public async Task<Nest.CreateResponse> ESPut<T>(T obj) where T : class => await _eSService?.IndexDS(obj, EsIndexName).ContinueWith(i =>
+        {
+            if (!i.Result.IsValid) _logBuf.AppendLine("[ESPut]Fail!\t" + i.Result.OriginalException?.Message);
+            return i.Result;
+        });
 
         /// <summary>
         /// Directly put object to Elastic Search, if activated.
