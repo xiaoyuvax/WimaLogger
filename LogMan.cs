@@ -5,7 +5,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -28,9 +27,9 @@ namespace Wima.Log
         public const string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
         public const string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd HH:mm:ss";
         public const string DEFAULT_LOGROOT_NAME = "logs";
-        public const string LINE_REPLACEMENT_PREFIX = "<< ";
-        public const string INTERNAL_ERROR_STR = "[LogSvc Internal Error]";
         public const char ES_INDEX_SEPARATOR = '-';
+        public const string INTERNAL_ERROR_STR = "[LogSvc Internal Error]";
+        public const string LINE_REPLACEMENT_PREFIX = "<< ";
 
         /// <summary>
         /// Preserve Period in Hour, 0 = forever
@@ -54,36 +53,13 @@ namespace Wima.Log
 
         protected StringBuilder _logBuf = new(DefaultMaxBufferLength);
 
+        private string _esIndexName;
+
         /// <summary>
         /// Name of the Log,should be unique among other instances.
         /// </summary>
         ///
         private string _name;
-
-        /// <summary>
-        /// Determine the details level of log
-        /// </summary>
-        public LogLevel LogLevel { get; set; }
-
-        /// <summary>
-        /// Show LogLevel in loglines or not
-        /// </summary>
-        public bool ShowLevel { get; set; }
-
-        /// <summary>
-        /// Show Datetime in loglines or not
-        /// </summary>
-        public bool ShowDateTime { get; set; }
-
-        /// <summary>
-        /// DateTimeFormat for loglines
-        /// </summary>
-        public string DateTimeFormat { get; set; }
-
-        /// <summary>
-        /// whether show LogName at beginning of line in console mode. LogName at each line will not be written to disk.
-        /// </summary>
-        public bool ShowLogName { get; set; }
 
         public LogMan(string logName, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
         {
@@ -110,7 +86,7 @@ namespace Wima.Log
 
             Name = logName;
 
-            RenewLogWriter();
+            renewLogWriter();
 
             //Register this Logman instance to a global static dictionary, if new instance use exisiting name, the old record would be overwritten.
             LogBook.AddOrUpdate(logName, this, (k, v) =>
@@ -123,24 +99,30 @@ namespace Wima.Log
         }
 
         public LogMan(Type type, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
-            : this(type.Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
+                    : this(type.Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
         { }
 
         public LogMan(object obj, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
-            : this(obj.GetType().Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
+                    : this(obj.GetType().Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
         { }
 
         public static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
 
         /// <summary>
-        /// This property evaluates default LogModes property of new instance.
+        /// Custom ElasticSearch IndexName Prefix for all instance,will be prefixed to all instance if not null or empty,which will be directly added to the front of each indexName;
+        /// Change this property will not timely change the EsIndexName property.
         /// </summary>
-        public static LogMode GlobalLogMode { get; set; } = LogMode.Console;
+        public static string ESGlobalIndexPrefix { get; set; }
 
         /// <summary>
         /// This property evaluates default LogLevel property of new instance.
         /// </summary>
         public static LogLevel GlobalLogLevel { get; set; } = LogLevel.All;
+
+        /// <summary>
+        /// This property evaluates default LogModes property of new instance.
+        /// </summary>
+        public static LogMode GlobalLogMode { get; set; } = LogMode.Console;
 
         /// <summary>
         /// Reggistered loggers
@@ -153,6 +135,24 @@ namespace Wima.Log
         public static string LogRoot { get; set; } = ResetLogRoot();
 
         public static DateTime StartedAt { get; private set; }
+
+        /// <summary>
+        /// DateTimeFormat for loglines
+        /// </summary>
+        public string DateTimeFormat { get; set; }
+
+        /// <summary>
+        /// Cached ElasticSearch IndexName,to avoid calculating the IndexName from time to time.
+        /// This property would not be updated after ESIndexPrefix, but will be updated upon setting Name value.
+        /// </summary>
+        public string EsIndexName => _esIndexName;
+
+        /// <summary>
+        /// Elastic Search IndexName Prefix for current instance, will be prefixed after GlobalIndexPrefix.
+        /// Default value = "log_", and can be changed per instance.
+        ///
+        /// </summary>
+        public string ESIndexPrefix { get; set; } = "logs" + ES_INDEX_SEPARATOR;
 
         public override bool IsDebugEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Debug);
 
@@ -181,6 +181,11 @@ namespace Wima.Log
         /// Time format for log file
         /// </summary>
         public string LogFileNameTimeFormat { get; set; } = DEFAULT_LOGFILE_NAME_TIME_FORMAT;
+
+        /// <summary>
+        /// Determine the details level of log
+        /// </summary>
+        public LogLevel LogLevel { get; set; }
 
         /// <summary>
         /// DateTime format for log lines
@@ -215,18 +220,31 @@ namespace Wima.Log
         }
 
         /// <summary>
+        /// Show Datetime in loglines or not
+        /// </summary>
+        public bool ShowDateTime { get; set; }
+
+        /// <summary>
+        /// Show LogLevel in loglines or not
+        /// </summary>
+        public bool ShowLevel { get; set; }
+
+        /// <summary>
+        /// whether show LogName at beginning of line in console mode. LogName at each line will not be written to disk.
+        /// </summary>
+        public bool ShowLogName { get; set; }
+
+        private static ESService _eSService { get; set; }
+
+        /// <summary>
         /// 无效的URL字符
         /// </summary>
         private static string invalidUrlChar { get; } = new string(Path.GetInvalidFileNameChars()) + new string(Path.GetInvalidPathChars());
-
-        private string _esIndexName;
 
         /// <summary>
         /// StreamWriter for writing
         /// </summary>
         private StreamWriter _logWriter { get; set; }
-
-        private static ESService _eSService { get; set; }
 
         private ILog CommonLogger { get; set; } = null;
 
@@ -259,25 +277,6 @@ namespace Wima.Log
         public static void SetLogRoot2CodeBase() => SetGlobalLogRoot(AppDomain.CurrentDomain.BaseDirectory);
 
         /// <summary>
-        /// Custom ElasticSearch IndexName Prefix for all instance,will be prefixed to all instance if not null or empty,which will be directly added to the front of each indexName;
-        /// Change this property will not timely change the EsIndexName property.
-        /// </summary>
-        public static string ESGlobalIndexPrefix { get; set; }
-
-        /// <summary>
-        /// Elastic Search IndexName Prefix for current instance, will be prefixed after GlobalIndexPrefix.
-        /// Default value = "log_", and can be changed per instance.
-        ///
-        /// </summary>
-        public string ESIndexPrefix { get; set; } = "logs" + ES_INDEX_SEPARATOR;
-
-        /// <summary>
-        /// Cached ElasticSearch IndexName,to avoid calculating the IndexName from time to time.
-        /// This property would not be updated after ESIndexPrefix, but will be updated upon setting Name value.
-        /// </summary>
-        public string EsIndexName => _esIndexName;
-
-        /// <summary>
         /// Unregister Logman from Loggers Dictionary, call this method when dispose the object associated with a logman instance.
         /// </summary>
         /// <returns></returns>
@@ -289,65 +288,27 @@ namespace Wima.Log
             _logWriter = null;
         }
 
+        /// <summary>
+        /// Get object from Elastic Search, if enabled.
+        /// This method sort with default field of "@timestamp" which is a compulsory field for ES datastream.
+        /// </summary>
+        public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp") where T : class => await _eSService?.GetDocument<T>(indexName, startIndex, size, sortDescending, sortField);
+
+        /// <summary>
+        /// Put object to Elastic Search, if enabled.
+        /// </summary>
+        public async Task<Nest.CreateResponse> ESPut<T>(T obj) where T : class => await _eSService?.IndexDS(obj, EsIndexName).ContinueWith(i =>
+        {
+            if (!i.Result.IsValid) _logBuf.AppendLine("[ESPut]Fail!\t" + i.Result.OriginalException?.Message);
+            return i.Result;
+        });
+
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
         {
-            bool useCommonLog() => LogModes.HasFlag(LogMode.CommonLog) && CommonLogger != null;
-
-            switch (level)
-            {
-                case LogLevel.Trace when IsTraceEnabled:
-                    if (useCommonLog())
-                        if (ex == null) CommonLogger.Trace(message);
-                        else CommonLogger.Trace(message, ex);
-                    break;
-
-                case LogLevel.Debug when IsDebugEnabled:
-                    if (useCommonLog())
-                        if (ex == null) CommonLogger.Debug(message);
-                        else CommonLogger.Debug(message, ex);
-                    break;
-
-                case LogLevel.Info when IsInfoEnabled:
-                    if (useCommonLog())
-                        if (ex == null) CommonLogger.Info(message);
-                        else CommonLogger.Info(message, ex);
-                    break;
-
-                case LogLevel.Warn when IsWarnEnabled:
-                    if (useCommonLog())
-                        if (ex == null) CommonLogger.Warn(message);
-                        else CommonLogger.Warn(message, ex);
-                    break;
-
-                case LogLevel.Error when IsErrorEnabled:
-                    if (useCommonLog())
-                        if (ex == null) CommonLogger.Error(message);
-                        else CommonLogger.Error(message, ex);
-                    break;
-
-                case LogLevel.Fatal when IsFatalEnabled:
-                    if (useCommonLog())
-                        if (ex == null) CommonLogger.Fatal(message);
-                        else CommonLogger.Fatal(message, ex);
-                    break;
-
-                case LogLevel.Trace when !IsTraceEnabled:
-                case LogLevel.Debug when !IsDebugEnabled:
-                case LogLevel.Info when !IsInfoEnabled:
-                case LogLevel.Warn when !IsWarnEnabled:
-                case LogLevel.Error when !IsErrorEnabled:
-                case LogLevel.Fatal when !IsFatalEnabled:
-                default:
-                    return;
-            }
-
-            var posSep = Name.LastIndexOf(Path.DirectorySeparatorChar) + 1;
-            var logName = posSep >= 0 ? Name.Substring(posSep, Name.Length - posSep) : Name;
-
             //Construction of logline
             StringBuilder _logLineBuilder = new();
 
-            _logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message?.ToString()}" +
+            _logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message}" +
                 $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex?.Message + "\r\n-> " + ex?.InnerException?.Message : "") + Environment.NewLine}");
 
             StringBuilder _stackChain = null;
@@ -355,21 +316,12 @@ namespace Wima.Log
             {
                 _stackChain = new StringBuilder();
                 _stackChain.Append(" <- ");
-                new StackTrace().GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith(".")).ToList().ForEach(i => _stackChain.Append("/" + i));
+                foreach (var i in new StackTrace().GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith("."))) _stackChain.Append("/" + i);
                 _stackChain.Append(Environment.NewLine + Environment.NewLine);
                 _logLineBuilder.Append(_stackChain);
             }
 
             string _logLine = _logLineBuilder.ToString();
-
-            //Post to ElasticSearch
-            if (LogModes.HasFlag(LogMode.ElasticSearch) && _eSService != null)
-                Task.Run(() => ESPut(
-                  new LogLine(DateTime.Now.Ticks, DateTime.Now,
-                  level.ToString(),
-                  message?.ToString(),
-                  ex?.Message + "\r\n-> " + ex?.InnerException?.Message,
-                  LogModes.HasFlag(LogMode.StackTrace) ? _stackChain?.ToString() : null)));
 
             //Update LogBuf:Cut tail and process Replacement Mark "<<" in _logBuf
             int _firstNL;
@@ -381,13 +333,12 @@ namespace Wima.Log
                 _logBuf.Insert(0, _logLine);
             }
 
-            //Renew logwriter conditionally
-            RenewLogWriter();
-            //Renew LogStreamWriter in case log path changes
+            //Log Native(Disk)
+            renewLogWriter(); //Renew LogStreamWriter in case log path changes
             if (LogModes.HasFlag(LogMode.Native) && _logWriter != null)
                 for (int i = 0; i < 2; i++)
                 {
-                    //if happens to fail writing during _logwriter renewal(occasionally in case threads pile up), relock new _logWriter for anothter trial.
+                    //if happens to fail writing during _logwriter renewal(occasionally in case threads pile up), lock new _logWriter for anothter trial.
                     try
                     {
                         lock (_logWriter) _logWriter.Write(_logLine);
@@ -403,23 +354,62 @@ namespace Wima.Log
                     }
                 }
 
+            //Post to CommonLogger ,if enabled.
+            if (LogModes.HasFlag(LogMode.CommonLog) && CommonLogger != null)
+                switch (level)
+                {
+                    case LogLevel.Trace when IsTraceEnabled:
+                        if (ex == null) CommonLogger.Trace(message);
+                        else CommonLogger.Trace(message, ex);
+                        break;
+
+                    case LogLevel.Debug when IsDebugEnabled:
+                        if (ex == null) CommonLogger.Debug(message);
+                        else CommonLogger.Debug(message, ex);
+                        break;
+
+                    case LogLevel.Info when IsInfoEnabled:
+                        if (ex == null) CommonLogger.Info(message);
+                        else CommonLogger.Info(message, ex);
+                        break;
+
+                    case LogLevel.Warn when IsWarnEnabled:
+                        if (ex == null) CommonLogger.Warn(message);
+                        else CommonLogger.Warn(message, ex);
+                        break;
+
+                    case LogLevel.Error when IsErrorEnabled:
+                        if (ex == null) CommonLogger.Error(message);
+                        else CommonLogger.Error(message, ex);
+                        break;
+
+                    case LogLevel.Fatal when IsFatalEnabled:
+                        if (ex == null) CommonLogger.Fatal(message);
+                        else CommonLogger.Fatal(message, ex);
+                        break;
+
+                    case LogLevel.Trace when !IsTraceEnabled:
+                    case LogLevel.Debug when !IsDebugEnabled:
+                    case LogLevel.Info when !IsInfoEnabled:
+                    case LogLevel.Warn when !IsWarnEnabled:
+                    case LogLevel.Error when !IsErrorEnabled:
+                    case LogLevel.Fatal when !IsFatalEnabled:
+                    default:
+                        return;
+                }
+
+            //Post to ElasticSearch, if enabled.
+            if (LogModes.HasFlag(LogMode.ElasticSearch) && _eSService != null)
+                _ = ESPut(
+                  new LogLine(DateTime.Now.Ticks, DateTime.Now,
+                  level.ToString(),
+                  message?.ToString(),
+                  ex?.Message + "\r\n-> " + ex?.InnerException?.Message,
+                   _stackChain?.ToString()));
+
+            //Post to Console, as the last output to indicate log accomplishes.
             if (LogModes.HasFlag(LogMode.Console)) Console.Write((ShowLogName ? Name + "\t" : "") + _logLine);
         }
-
-        /// <summary>
-        /// Directly put object to Elastic Search, if activated.
-        /// </summary>
-        public async Task<Nest.CreateResponse> ESPut<T>(T obj) where T : class => await _eSService?.IndexDS(obj, EsIndexName).ContinueWith(i =>
-        {
-            if (!i.Result.IsValid) _logBuf.AppendLine("[ESPut]Fail!\t" + i.Result.OriginalException?.Message);
-            return i.Result;
-        });
-
-        /// <summary>
-        /// Directly put object to Elastic Search, if activated.
-        /// This method sort with default field of "@timestamp" which is a compulsory field for ES datastream.
-        /// </summary>
-        public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp") where T : class => await _eSService?.GetDocument<T>(indexName, startIndex, size);
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
 
@@ -428,7 +418,7 @@ namespace Wima.Log
         /// <summary>
         /// Thread-safely updating LogWriter
         /// </summary>
-        private void RenewLogWriter()
+        private void renewLogWriter()
         {
             DateTime now = DateTime.Now;
             if (LogRenewalPeriodInHour == 1 || ((int)(now - StartedAt).TotalHours) % LogRenewalPeriodInHour == 0 || _logWriter == null)
