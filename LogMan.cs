@@ -208,16 +208,21 @@ namespace Wima.Log
             set
             {
                 var v = value;
-                Path.GetInvalidFileNameChars()
-                    .Where(i => i != Path.DirectorySeparatorChar)
-                    .ToList().ForEach(i => v = v.Replace(i, '_'));
+                foreach (char c in invalidUrlChar.Except(new[] { Path.DirectorySeparatorChar })) v = v.Replace(c, '_');
                 _name = v;
-                v = ESGlobalIndexPrefix + ESIndexPrefix + _name;   //TODO:因为要到读取配置的时候才会给ES索引名前缀赋值，所以之前初始化的日志的名称可能会有问题。
+                v = GetESIndexName(_name);   //TODO:因为要到读取配置的时候才会给ES索引名前缀赋值，所以之前初始化的日志的名称可能会有问题。
 
                 foreach (char c in invalidUrlChar) v = v.Replace(c, '_');
-                _esIndexName = v.ToLower(); ;
+                _esIndexName = v;
             }
         }
+
+        /// <summary>
+        /// Method exposed for external procedure to construct ES Index string for querying ES.
+        /// </summary>
+        /// <param name="logName"></param>
+        /// <returns></returns>
+        public string GetESIndexName(string logName) => (ESGlobalIndexPrefix + ESIndexPrefix + logName.Replace(Path.DirectorySeparatorChar, ES_INDEX_SEPARATOR)).ToLower();
 
         /// <summary>
         /// Show Datetime in loglines or not
@@ -292,7 +297,7 @@ namespace Wima.Log
         /// Get object from Elastic Search, if enabled.
         /// This method sort with default field of "@timestamp" which is a compulsory field for ES datastream.
         /// </summary>
-        public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp") where T : class => await _eSService?.GetDocument<T>(indexName, startIndex, size, sortDescending, sortField);
+        public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp", DateTime startTime = default, DateTime endTime = default) where T : class => await _eSService?.GetDocument<T>(indexName, startIndex, size, sortDescending, sortField, startTime, endTime);
 
         /// <summary>
         /// Put object to Elastic Search, if enabled.

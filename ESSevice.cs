@@ -197,12 +197,20 @@ namespace Wima.Log
         /// <summary>
         /// 获取文档
         /// </summary>
-        public async Task<ISearchResponse<T>> GetDocument<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp") where T : class
+        public async Task<ISearchResponse<T>> GetDocument<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp", DateTime startTime = default, DateTime endTime = default) where T : class
         {
             return await Client.SearchAsync<T>(r => r.Index(indexName.ToLower())
-           .Sort(i => sortDescending ? i.Descending(new Field(sortField)) : i.Ascending(new Field(sortField)))
-           .From(startIndex)
-           .Size(size));
+            .Sort(i => sortDescending ? i.Descending(new Field(sortField)) : i.Ascending(new Field(sortField)))
+            .From(startIndex)
+            .Size(size).TrackTotalHits(true).FilterPath("-_shards", "-metadata")
+            .Query(q => q.DateRange(d =>
+            {
+                var r = d.Field("@timestamp");
+                if (startTime != default) r.GreaterThanOrEquals(startTime);
+                if (endTime != default) r.LessThanOrEquals(endTime);
+                return r;
+            }))
+            );
         }
 
         /// <summary>
