@@ -43,20 +43,25 @@ namespace Wima.Log
     /// <summary>
     /// 访问ElasticSearch服务类
     /// </summary>
-    public partial class ESService
+    public partial class ElasticSearchService : IDisposable
     {
         public const string TimeFormat = "HH:mm:ss";
         private readonly object syncExistIndex = new object();
         private ConcurrentDictionary<string, DateTime> _indexCache = new ConcurrentDictionary<string, DateTime>();
 
-        public ESService(IOptions<ESConfig> esConfig) => CreateClient(esConfig.Value);
+        public bool IsOnline { get; private set; }
+        public bool IsDisposed { get; private set; }
 
-        public ESService(ESConfig esConfig) => CreateClient(esConfig);
+        public ESConfig Config { get; private set; }
+
+        public ElasticSearchService(IOptions<ESConfig> esConfig) => CreateClient(esConfig.Value);
+
+        public ElasticSearchService(ESConfig esConfig) => CreateClient(esConfig);
 
         /// <summary>
         /// Linq查询的官方Client
         /// </summary>
-        public ElasticClient Client { get; set; }
+        public ElasticClient Client { get; private set; }
 
         /// <summary>
         /// 索引本地缓存的最大时间，超时则清理
@@ -82,6 +87,7 @@ namespace Wima.Log
 
             //if (!esConfig.IdInference) settings.DefaultMappingFor<OrderDoc>(m => m.DisableIdInference());
             Client = new ElasticClient(settings);//linq请求客户端初始化
+            Config = esConfig;
             return Client;
         }
 
@@ -203,13 +209,18 @@ namespace Wima.Log
             .Sort(i => sortDescending ? i.Descending(new Field(sortField)) : i.Ascending(new Field(sortField)))
             .From(startIndex)
             .Size(size).TrackTotalHits(true).FilterPath("-_shards", "-metadata")
-            .Query(q => q.DateRange(d =>
+            .Query(q =>
             {
-                var r = d.Field("@timestamp");
-                if (startTime != default) r.GreaterThanOrEquals(startTime);
-                if (endTime != default) r.LessThanOrEquals(endTime);
-                return r;
-            }))
+                return q.DateRange(d =>
+              {
+                  var r = d.Field("@timestamp");
+                  if (startTime != default) r.GreaterThanOrEquals(startTime);
+                  if (endTime != default) r.LessThanOrEquals(endTime);
+                  return r;
+              })
+                //+ q.Bool(i=> i.Filter() )
+                ;
+            })
             );
         }
 
@@ -375,6 +386,13 @@ namespace Wima.Log
                 return settingResponse;
             }
             return null;
+        }
+
+        public void Dispose()
+        {
+            Client = null;
+            _indexCache.Clear();
+            IsDisposed = true;
         }
 
         #endregion ES设置

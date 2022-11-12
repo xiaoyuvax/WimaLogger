@@ -2,6 +2,7 @@
 using Common.Logging.Factory;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -86,8 +87,11 @@ namespace Wima.Log
 
             Name = logName;
 
+            //Init LogWriter.
             renewLogWriter();
 
+            //LogMan use a self-registration Model, and will be unregisted in its Dispose() method.
+            //Call this.Dispose() when class who instantiates LogMan disposes, so that logWriter and ESService instances can be released.
             //Register this Logman instance to a global static dictionary, if new instance use exisiting name, the old record would be overwritten.
             LogBook.AddOrUpdate(logName, this, (k, v) =>
             {
@@ -95,7 +99,7 @@ namespace Wima.Log
                 return this;
             });
 
-            Info("[LogMan]\tOK!");
+            Info($"[LogMan:{Name}]\tOK!");
         }
 
         public LogMan(Type type, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
@@ -113,6 +117,11 @@ namespace Wima.Log
         /// Change this property will not timely change the EsIndexName property.
         /// </summary>
         public static string ESGlobalIndexPrefix { get; set; }
+
+        /// <summary>
+        /// Reference to shared ElasticSearchService, once initialized all Logs share this service instance.
+        /// </summary>
+        public static ElasticSearchService ESService { get; private set; }
 
         /// <summary>
         /// This property evaluates default LogLevel property of new instance.
@@ -218,13 +227,6 @@ namespace Wima.Log
         }
 
         /// <summary>
-        /// Method exposed for external procedure to construct ES Index string for querying ES.
-        /// </summary>
-        /// <param name="logName"></param>
-        /// <returns></returns>
-        public string GetESIndexName(string logName) => (ESGlobalIndexPrefix + ESIndexPrefix + logName.Replace(Path.DirectorySeparatorChar, ES_INDEX_SEPARATOR)).ToLower();
-
-        /// <summary>
         /// Show Datetime in loglines or not
         /// </summary>
         public bool ShowDateTime { get; set; }
@@ -239,8 +241,6 @@ namespace Wima.Log
         /// </summary>
         public bool ShowLogName { get; set; }
 
-        private static ESService _eSService { get; set; }
-
         /// <summary>
         /// 无效的URL字符
         /// </summary>
@@ -254,7 +254,7 @@ namespace Wima.Log
         private ILog CommonLogger { get; set; } = null;
 
         /// <summary>
-        /// Intialized Global ElasticSearch Client
+        /// Intialized Shared ElasticSearch Client, which is used by all LogMan instances. 
         /// </summary>
         /// <param name="config"></param>
         /// <returns></returns>
@@ -262,7 +262,7 @@ namespace Wima.Log
         public static bool InitElasticSearch(ESConfig config, string globalIndexPrefix = null)
         {
             if (globalIndexPrefix != null) ESGlobalIndexPrefix = globalIndexPrefix + ES_INDEX_SEPARATOR;
-            return (_eSService = new ESService(config)).Client != null;
+            return (ESService = new ElasticSearchService(config)).Client != null;
         }
 
         /// <summary>
@@ -287,26 +287,42 @@ namespace Wima.Log
         /// <returns></returns>
         public void Dispose()
         {
-            var done = LogBook.TryRemove(Name, out _);
-            if (done) Info("LogMan Disposed!");
+            //LogMan instance is suggested to be disposed with the class which uses it, so it is convenient to unregister itself from static LogBook.
+            if (LogBook.TryRemove(Name, out _)) Info($"LogMan:{Name} Disposed!");
             _logWriter?.Dispose();
             _logWriter = null;
         }
 
         /// <summary>
+        /// Put object to Elastic Search, if enabled.
+        /// </summary>
+        public async Task<Nest.DeleteDataStreamResponse> ESDelDataStreams(IEnumerable<string> dsNames) => await ESService?.Client.Indices.DeleteDataStreamAsync(new Nest.Names(dsNames)).ContinueWith(i =>
+        {
+            if (!i.Result.IsValid) _logBuf.AppendLine("[ESDel]Fail!\t" + i.Result.OriginalException?.Message);
+            return i.Result;
+        });
+
+        /// <summary>
         /// Get object from Elastic Search, if enabled.
         /// This method sort with default field of "@timestamp" which is a compulsory field for ES datastream.
         /// </summary>
-        public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp", DateTime startTime = default, DateTime endTime = default) where T : class => await _eSService?.GetDocument<T>(indexName, startIndex, size, sortDescending, sortField, startTime, endTime);
+        public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp", DateTime startTime = default, DateTime endTime = default) where T : class => await ESService?.GetDocument<T>(indexName, startIndex, size, sortDescending, sortField, startTime, endTime);
 
         /// <summary>
         /// Put object to Elastic Search, if enabled.
         /// </summary>
-        public async Task<Nest.CreateResponse> ESPut<T>(T obj) where T : class => await _eSService?.IndexDS(obj, EsIndexName).ContinueWith(i =>
+        public async Task<Nest.CreateResponse> ESPut<T>(T obj) where T : class => await ESService?.IndexDS(obj, EsIndexName).ContinueWith(i =>
         {
             if (!i.Result.IsValid) _logBuf.AppendLine("[ESPut]Fail!\t" + i.Result.OriginalException?.Message);
             return i.Result;
         });
+
+        /// <summary>
+        /// Method exposed for external procedure to construct ES Index string for querying ES.
+        /// </summary>
+        /// <param name="logName"></param>
+        /// <returns></returns>
+        public string GetESIndexName(string logName) => (ESGlobalIndexPrefix + ESIndexPrefix + logName.Replace(Path.DirectorySeparatorChar, ES_INDEX_SEPARATOR)).ToLower();
 
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
         {
@@ -404,7 +420,7 @@ namespace Wima.Log
                 }
 
             //Post to ElasticSearch, if enabled.
-            if (LogModes.HasFlag(LogMode.ElasticSearch) && _eSService != null)
+            if (LogModes.HasFlag(LogMode.ElasticSearch) && ESService != null)
                 _ = ESPut(
                   new LogLine(DateTime.Now.Ticks, DateTime.Now,
                   level.ToString(),
