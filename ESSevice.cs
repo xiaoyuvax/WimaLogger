@@ -80,7 +80,7 @@ namespace Wima.Log
                 throw new ArgumentNullException(nameof(esConfig));
             }
 
-            var uris = esConfig.Urls.Split(',').ToList().Select(i => Uri.TryCreate(i, UriKind.Absolute, out Uri u) ? u : null);//配置节点地址，以，分开
+            var uris = esConfig.Urls.Split(',').Select(i => Uri.TryCreate(i, UriKind.Absolute, out Uri u) ? u : null);//配置节点地址，以，分开
             var settings = new ConnectionSettings(new StaticConnectionPool(uris))
                 .BasicAuthentication(esConfig.User, esConfig.Pwd)//用户名和密码
                 .RequestTimeout(TimeSpan.FromSeconds(30));//请求配置参数

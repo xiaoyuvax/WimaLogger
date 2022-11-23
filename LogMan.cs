@@ -465,9 +465,8 @@ namespace Wima.Log
                             if (LogPreservePeriodInHour > 0)
                                 try
                                 {
-                                    Directory.GetFiles(logPath, "*.log")
-                                    .Where(i => (now - File.GetLastWriteTime(i)).TotalHours >= LogPreservePeriodInHour)
-                                    .ToList().ForEach(i => File.Delete(i));
+                                    foreach (var i in Directory.GetFiles(logPath, "*.log").Where(i => (now - File.GetLastWriteTime(i)).TotalHours >= LogPreservePeriodInHour))
+                                        File.Delete(i);
                                 }
                                 catch (Exception ex)
                                 {
