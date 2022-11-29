@@ -196,9 +196,6 @@ namespace Wima.Log
 
         public const int MAX_DOC_CACHE_SIZE = 20;
         public const int MAX_DOC_CACHE_WAIT_IN_SECONDS = 10;
-        public List<string> GlobalAllIndex = new List<string>();
-        private ConcurrentDictionary<string, ConcurrentDictionary<long, object>> CacheBook = new ConcurrentDictionary<string, ConcurrentDictionary<long, object>>();
-        //ticks
 
         /// <summary>
         /// 获取文档

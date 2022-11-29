@@ -330,7 +330,7 @@ namespace Wima.Log
             StringBuilder _logLineBuilder = new();
 
             _logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message}" +
-                $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex?.Message + "\r\n-> " + ex?.InnerException?.Message : "") + Environment.NewLine}");
+                (ex == null ? "" : $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex.Message + "\r\n-> " + ex.InnerException?.Message : "")}") + Environment.NewLine);
 
             StringBuilder _stackChain = null;
             if (LogModes.HasFlag(LogMode.StackTrace))
