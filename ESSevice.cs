@@ -88,6 +88,9 @@ namespace Wima.Log
             //if (!esConfig.IdInference) settings.DefaultMappingFor<OrderDoc>(m => m.DisableIdInference());
             Client = new ElasticClient(settings);//linq请求客户端初始化
             Config = esConfig;
+            
+            //TODO: Ping() loop
+
             return Client;
         }
 
@@ -393,5 +396,27 @@ namespace Wima.Log
         }
 
         #endregion ES设置
+
+        #region 状态
+
+        public string ClusterInfo { get; private set; } = "...";
+
+        public void GetESInfo() => ClusterInfo = Client?.RootNodeInfoAsync().ContinueWith(i => i.Result.IsValid ?
+                                                $"节点地址：{LogMan.ESService.Config.Urls}\r\n节点名：{i.Result.Name}\r\n集群名：{i.Result.ClusterName}\r\n版本：{i.Result.Version.Number}"
+                                                : null).Result ?? "...";
+
+        public DateTime LastPingTime { get; private set; }
+
+        /// <summary>
+        /// Ping ElasticSearch
+        /// </summary>
+        /// <returns></returns>
+        public Task<bool> Ping() => LogMan.ESService.Client.PingAsync().ContinueWith(r =>
+        {
+            if (r.Result.IsValid) LastPingTime = DateTime.Now;
+            return r.Result.IsValid;
+        });
+
+        #endregion 状态
     }
 }

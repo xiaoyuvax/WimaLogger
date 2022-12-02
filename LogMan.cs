@@ -181,8 +181,8 @@ namespace Wima.Log
         public string LogBuf
         {
             get
-            {
-                lock (syncLogBuf) return _logBuf.ToString();
+            {                
+                lock (syncLogBuf) return _logBuf.ToString();  //StringBuilder is not thread-safe.
             }
         }
 
@@ -327,22 +327,22 @@ namespace Wima.Log
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
         {
             //Construction of logline
-            StringBuilder _logLineBuilder = new();
+            StringBuilder logLineBuilder = new();
 
-            _logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message}" +
+            logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message}" +
                 (ex == null ? "" : $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex.Message + "\r\n-> " + ex.InnerException?.Message : "")}") + Environment.NewLine);
 
-            StringBuilder _stackChain = null;
+            StringBuilder stackChain = null;
             if (LogModes.HasFlag(LogMode.StackTrace))
             {
-                _stackChain = new StringBuilder();
-                _stackChain.Append(" <- ");
-                foreach (var i in new StackTrace().GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith("."))) _stackChain.Append("/" + i);
-                _stackChain.Append(Environment.NewLine + Environment.NewLine);
-                _logLineBuilder.Append(_stackChain);
+                stackChain = new StringBuilder();
+                stackChain.Append(" <- ");
+                foreach (var i in new StackTrace().GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith("."))) stackChain.Append("/" + i);
+                stackChain.Append(Environment.NewLine + Environment.NewLine);
+                logLineBuilder.Append(stackChain);
             }
 
-            string _logLine = _logLineBuilder.ToString();
+            string _logLine = logLineBuilder.ToString();
 
             //Update LogBuf:Cut tail and process Replacement Mark "<<" in _logBuf
             int _firstNL;
@@ -426,7 +426,7 @@ namespace Wima.Log
                   level.ToString(),
                   message?.ToString(),
                   ex?.Message + "\r\n-> " + ex?.InnerException?.Message,
-                   _stackChain?.ToString()));
+                   stackChain?.ToString()));
 
             //Post to Console, as the last output to indicate log accomplishes.
             if (LogModes.HasFlag(LogMode.Console)) Console.Write((ShowLogName ? Name + "\t" : "") + _logLine);
