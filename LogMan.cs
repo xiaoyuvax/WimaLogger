@@ -23,7 +23,7 @@ namespace Wima.Log
         ElasticSearch = 0b100000
     }
 
-    public class LogMan : AbstractLogger, IDisposable
+    public sealed class LogMan : AbstractLogger, IDisposable
     {
         public const string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
         public const string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd HH:mm:ss";
@@ -181,7 +181,7 @@ namespace Wima.Log
         public string LogBuf
         {
             get
-            {                
+            {
                 lock (syncLogBuf) return _logBuf.ToString();  //StringBuilder is not thread-safe.
             }
         }
@@ -254,16 +254,16 @@ namespace Wima.Log
         private ILog CommonLogger { get; set; } = null;
 
         /// <summary>
-        /// Intialized Shared ElasticSearch Client, which is used by all LogMan instances. 
+        /// Intialized Shared ElasticSearch Client, which is used by all LogMan instances.
         /// </summary>
         /// <param name="config"></param>
         /// <returns></returns>
         /// <remarks>An index template of ESGlobalIndexPrefix must be created in ES for this log mode to work.</remarks>
-        public static bool InitElasticSearch(ESConfig config, string globalIndexPrefix = null)
-        {
-            if (globalIndexPrefix != null) ESGlobalIndexPrefix = globalIndexPrefix + ES_INDEX_SEPARATOR;
-            return (ESService = new ElasticSearchService(config)).Client != null;
-        }
+        public static Task<bool> InitElasticSearch(ESConfig config, string globalIndexPrefix = null) => Task.Run(() =>
+            {
+                if (globalIndexPrefix != null) ESGlobalIndexPrefix = globalIndexPrefix + ES_INDEX_SEPARATOR;
+                return (ESService = new ElasticSearchService(config)).Client != null;
+            });
 
         /// <summary>
         /// Get LogRoot path once
@@ -294,28 +294,33 @@ namespace Wima.Log
         }
 
         /// <summary>
-        /// Put object to Elastic Search, if enabled.
+        /// Del object from Elastic Search, if enabled.
         /// </summary>
-        public async Task<Nest.DeleteDataStreamResponse> ESDelDataStreams(IEnumerable<string> dsNames) => await ESService?.Client.Indices.DeleteDataStreamAsync(new Nest.Names(dsNames)).ContinueWith(i =>
+        public async Task<Nest.DeleteDataStreamResponse> ESDelDataStreams(IEnumerable<string> dsNames) => ESService.IsOnline ? await ESService?.Client.Indices.DeleteDataStreamAsync(new Nest.Names(dsNames)).ContinueWith(i =>
         {
             if (!i.Result.IsValid) _logBuf.AppendLine("[ESDel]Fail!\t" + i.Result.OriginalException?.Message);
             return i.Result;
-        });
+        }) : ESService.FakeDeleteDataStreamResponseFalse;
 
         /// <summary>
         /// Get object from Elastic Search, if enabled.
         /// This method sort with default field of "@timestamp" which is a compulsory field for ES datastream.
         /// </summary>
-        public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp", DateTime startTime = default, DateTime endTime = default) where T : class => await ESService?.GetDocument<T>(indexName, startIndex, size, sortDescending, sortField, startTime, endTime);
+        public async Task<Nest.ISearchResponse<T>> ESGet<T>(string indexName, int startIndex = 0, int size = 10, bool sortDescending = false, string sortField = "@timestamp", DateTime startTime = default, DateTime endTime = default) where T : class
+            => ESService.IsOnline ? await ESService?.GetDocument<T>(indexName, startIndex, size, sortDescending, sortField, startTime, endTime) : ESService.GetFakeTaskSearchResponseFalse<T>();
 
         /// <summary>
         /// Put object to Elastic Search, if enabled.
         /// </summary>
-        public async Task<Nest.CreateResponse> ESPut<T>(T obj) where T : class => await ESService?.IndexDS(obj, EsIndexName).ContinueWith(i =>
+        public async Task<Exception> ESPut<T>(T obj) where T : class => ESService.IsOnline ? await ESService?.IndexDSBuffered(obj, EsIndexName).ContinueWith(i =>
         {
-            if (!i.Result.IsValid) _logBuf.AppendLine("[ESPut]Fail!\t" + i.Result.OriginalException?.Message);
+            if (i.Result != null)
+            {
+                _logBuf.AppendLine("[ESPut]Fail!\t" + i.Result.Message);
+
+            }
             return i.Result;
-        });
+        }) : null;
 
         /// <summary>
         /// Method exposed for external procedure to construct ES Index string for querying ES.

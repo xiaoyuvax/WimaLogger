@@ -5,6 +5,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace System.Runtime.CompilerServices
@@ -25,34 +26,19 @@ namespace Wima.Log
     public record UpdateAllWatchParams(string IndexName, int? ThisBatchNo = null, int? DocCntInIndex = null, int? DocCntInBatch = null, int? subIndexCnt = null, int? subIndexNo = null, int? TrialCount = null, int? ThreadsLimit = null, int? TrialStack = null, int? ErrCode = null, string Msg = null)
         : UpdateAllResult(ThisBatchNo, TrialCount, ErrCode, Msg);
 
-    internal class FakeCreateResponse : CreateResponse
-    {
-        private bool _isValid = false;
-
-        public FakeCreateResponse(bool isValid)
-        {
-            _isValid = isValid;
-        }
-
-        public override bool IsValid => _isValid;
-    }
-
     /// <summary>
     /// 访问ElasticSearch服务类
     /// </summary>
     /// <summary>
     /// 访问ElasticSearch服务类
     /// </summary>
-    public partial class ElasticSearchService : IDisposable
+    public sealed partial class ElasticSearchService : IDisposable
     {
         public const string TimeFormat = "HH:mm:ss";
-        private readonly object syncExistIndex = new object();
-        private ConcurrentDictionary<string, DateTime> _indexCache = new ConcurrentDictionary<string, DateTime>();
-
-        public bool IsOnline { get; private set; }
-        public bool IsDisposed { get; private set; }
-
-        public ESConfig Config { get; private set; }
+        private const int PingPeriodInMs = 60000;
+        private readonly ConcurrentDictionary<string, DateTime> _indexCache = new();
+        private readonly LogMan LogMan = new(typeof(ElasticSearchService));
+        private CancellationTokenSource pingCancellationTokenSource;
 
         public ElasticSearchService(IOptions<ESConfig> esConfig) => CreateClient(esConfig.Value);
 
@@ -62,6 +48,10 @@ namespace Wima.Log
         /// Linq查询的官方Client
         /// </summary>
         public ElasticClient Client { get; private set; }
+
+        public ESConfig Config { get; private set; }
+        public bool IsDisposed { get; private set; }
+        public bool IsOnline => (DateTime.Now - LastPingTime).TotalMilliseconds < PingPeriodInMs * 2;
 
         /// <summary>
         /// 索引本地缓存的最大时间，超时则清理
@@ -80,17 +70,31 @@ namespace Wima.Log
                 throw new ArgumentNullException(nameof(esConfig));
             }
 
-            var uris = esConfig.Urls.Split(',').Select(i => Uri.TryCreate(i, UriKind.Absolute, out Uri u) ? u : null);//配置节点地址，以，分开
+            var uris = esConfig.Urls.Split(',').Select(i => Uri.TryCreate(i, UriKind.Absolute, out Uri u) ? u : null);//配置节点地址，以","分开
             var settings = new ConnectionSettings(new StaticConnectionPool(uris))
                 .BasicAuthentication(esConfig.User, esConfig.Pwd)//用户名和密码
                 .RequestTimeout(TimeSpan.FromSeconds(30));//请求配置参数
 
             //if (!esConfig.IdInference) settings.DefaultMappingFor<OrderDoc>(m => m.DisableIdInference());
-            Client = new ElasticClient(settings);//linq请求客户端初始化
+            Client = new(settings);//linq请求客户端初始化
             Config = esConfig;
-            
-            //TODO: Ping() loop
 
+            //另开线程检查服务器是否在线
+            pingCancellationTokenSource?.Cancel();
+            pingCancellationTokenSource = new();
+            Task.Run(() =>
+            {
+                var tokenSource = pingCancellationTokenSource; //保留一份引用副本，防止在更新时实例改变
+                LogMan.Info($"[ESSvc]\tPing线程({tokenSource.GetHashCode()})启动！");
+                while (!tokenSource.IsCancellationRequested)
+                {
+                    Ping().Wait();
+                    Thread.Sleep(PingPeriodInMs);
+                }
+                LogMan.Info($"[ESSvc]\tPing线程({tokenSource.GetHashCode()})退出！");
+            }, pingCancellationTokenSource.Token);
+
+            GetESInfoAsync();
             return Client;
         }
 
@@ -126,12 +130,13 @@ namespace Wima.Log
         /// <param name="indexName"></param>
         /// <param name="clean"></param>
         /// <returns></returns>
-        public bool EnsureDS(string indexName, bool clean = false)
+        public async Task<bool> EnsureDS(string indexName, bool clean = false)
         {
-            bool hasIndex;
-            lock (Client)
+            bool hasIndex = false;
+
+            if (Client != null)
             {
-                hasIndex = ExistsIndex(indexName);
+                hasIndex = await ExistsIndex(indexName);
                 if (clean && hasIndex)
                 {
                     if (Client.Indices.DeleteDataStream(indexName).IsValid) hasIndex = false;
@@ -139,7 +144,7 @@ namespace Wima.Log
                 if (!hasIndex)
                 {
                     Client.Indices.CreateDataStream(indexName);
-                    hasIndex = ExistsIndex(indexName);
+                    hasIndex = await ExistsIndex(indexName);
                 }
             }
 
@@ -155,17 +160,17 @@ namespace Wima.Log
         /// <param name="refreshInterval"></param>
         /// <param name="clean"></param>
         /// <returns></returns>
-        public bool EnsureIndex(string indexName, string alias = null, int replicaNo = 1, int refreshInterval = 1, bool clean = false)
+        public async Task<bool> EnsureIndex(string indexName, string alias = null, int replicaNo = 1, int refreshInterval = 1, bool clean = false)
         {
-            bool hasIndex = ExistsIndex(indexName);
+            bool hasIndex = await ExistsIndex(indexName);
             if (clean && hasIndex)
             {
                 if (Client.Indices.Delete(indexName).IsValid) hasIndex = false;
             }
             if (!hasIndex)
             {
-                CreateIndex(indexName, replicaNo, refreshInterval: refreshInterval, alias: alias).Wait();
-                hasIndex = ExistsIndex(indexName);
+                await CreateIndex(indexName, replicaNo, refreshInterval: refreshInterval, alias: alias);
+                hasIndex = await ExistsIndex(indexName);
             }
 
             return hasIndex;
@@ -177,19 +182,21 @@ namespace Wima.Log
         /// <param name="indexName"></param>
         /// <param name="selector"></param>
         /// <returns></returns>
-        public bool ExistsIndex(string indexName, Func<IndexExistsDescriptor, IIndexExistsRequest> selector = null)
+        public async Task<bool> ExistsIndex(string indexName, Func<IndexExistsDescriptor, IIndexExistsRequest> selector = null)
         {
-            indexName = indexName.ToLower();
             bool existed = false;
+            indexName = indexName.ToLower();
 
             if (_indexCache.TryGetValue(indexName, out DateTime dt) && (DateTime.Now - dt).TotalMinutes < MaxAgeOfIndexCacheInMinutes)
                 existed = true;
             else
             {
-                lock (syncExistIndex) existed = Client.Indices.Exists(indexName, selector).Exists;
-                if (existed) _indexCache.AddOrUpdate(indexName, DateTime.Now, (k, v) => DateTime.Now);
+                var r = await Client.Indices.ExistsAsync(indexName, selector);
+
+                if (r.IsValid && (existed = r.Exists)) _indexCache.AddOrUpdate(indexName, DateTime.Now, (k, v) => DateTime.Now);
                 else _indexCache.TryRemove(indexName, out _);
             }
+
             return existed;
         }
 
@@ -197,8 +204,15 @@ namespace Wima.Log
 
         #region 文档
 
+        public const int BULK_BUFFER_LIMIT = BULK_BUFFER_THRESHOLD * 2;
+        public const int BULK_BUFFER_THRESHOLD = 100;
         public const int MAX_DOC_CACHE_SIZE = 20;
         public const int MAX_DOC_CACHE_WAIT_IN_SECONDS = 10;
+
+        public readonly DeleteDataStreamResponse FakeDeleteDataStreamResponseFalse = new FakeDeleteDataStreamResponse(false);
+        public readonly CreateResponse FakeTaskCreateResponseFalse = new FakeCreateResponse(false);
+        public readonly CreateResponse FakeTaskCreateResponseTrue = new FakeCreateResponse(true);
+        private readonly ConcurrentDictionary<string, ConcurrentQueue<object>> docBuffer = new();
 
         /// <summary>
         /// 获取文档
@@ -224,6 +238,8 @@ namespace Wima.Log
             );
         }
 
+        public ISearchResponse<T> GetFakeTaskSearchResponseFalse<T>() where T : class => new FakeSearchResponse<T>(false);
+
         /// <summary>
         /// 创建文档。会先检查索引是否存在，然后再创建。
         /// </summary>
@@ -234,13 +250,9 @@ namespace Wima.Log
         public async Task<CreateResponse> Index<T>(T entity, string indexName, string alias = null) where T : class
         {
             CreateResponse response = null;
-            try
-            {
-                if (EnsureIndex(indexName, alias)) response = await Client.CreateAsync(entity, t => t.Index(indexName.ToLower()));
-            }
-            catch (Exception ex)
-            {
-            }
+
+            if (await EnsureIndex(indexName, alias)) response = await Client.CreateAsync(entity, t => t.Index(indexName.ToLower()));
+
             return response;
         }
 
@@ -257,7 +269,7 @@ namespace Wima.Log
             int c = 0;
             try
             {
-                if (ExistsIndex(indexName)) response = Client.BulkAll(docs, t1 => t1.Index(indexName)
+                if (ExistsIndex(indexName).Result) response = Client.BulkAll(docs, t1 => t1.Index(indexName)
                        .BackOffRetries(20)
                        .BackOffTime("10s")
                        .BackPressure(1, 2)
@@ -277,7 +289,7 @@ namespace Wima.Log
         }
 
         /// <summary>
-        /// 批量执行一个批次的更新操作(不会检查索引是否存在)。
+        /// 对索引（数据流不行）批量执行一个批次的更新操作(不会检查索引是否存在)。
         /// </summary>
         /// <param name="indexName"></param>
         /// <param name="e"></param>
@@ -285,11 +297,24 @@ namespace Wima.Log
         /// <param name="batchSize"></param>
         /// <returns></returns>
         public BulkResponse IndexBulk<T>(IEnumerable<T> e, string indexName, bool noItems = false) where T : class =>
-            Client.Bulk(s => s.Index(indexName).IndexMany<T>(e, (d, adoc) => d.Document(adoc)).FilterPath("-_shards", "-metadata", noItems ? "-items" : "items"));
+            Client.Bulk(s => s.Index(indexName).IndexMany(e, (d, adoc) => d.Document(adoc)).FilterPath("-_shards", "-metadata", noItems ? "-items" : "items"));
+
+        /// <summary>
+        /// 对数据流批量执行一个批次的更新操作。
+        /// </summary>
+        /// <param name="indexName"></param>
+        /// <param name="e"></param>
+        /// <param name="eoc"></param>
+        /// <param name="batchSize"></param>
+        /// <returns></returns>
+        public async Task<BulkResponse> IndexBulkDS<T>(IEnumerable<T> e, string indexName, bool noItems = true) where T : class
+        {
+            if (await EnsureDS(indexName)) return Client.Bulk(s => s.Index(indexName).CreateMany(e, (d, adoc) => d.Document(adoc)).FilterPath("-_shards", "-metadata", noItems ? "-items" : "items"));
+            return new FakeBulkResponse(false);
+        }
 
         /// <summary>
         /// 在数据流中创建文档。会先检查数据流是否存在，不存在就创建。
-        /// 注意：数据流无法使用ES批量提交。
         /// </summary>
         /// <typeparam name="TEntity"></typeparam>
         /// <param name="entity"></param>
@@ -297,12 +322,62 @@ namespace Wima.Log
         /// <returns>如果索引不存在且创建失败，暂时缓存或批量提交则可能返回null</returns>
         public async Task<CreateResponse> IndexDS<T>(T entity, string indexName) where T : class
         {
-            CreateResponse response = new FakeCreateResponse(false);
+            CreateResponse response = FakeTaskCreateResponseFalse;
 
             //索引不存在，就创建索引。
-            if (EnsureDS(indexName)) response = await Client.CreateAsync(entity, t => t.Index(indexName.ToLower()));
+            if (await EnsureDS(indexName)) response = await Client.CreateAsync(entity, t => t.Index(indexName.ToLower()));
 
             return response;
+        }
+
+        /// <summary>
+        /// 在数据流中创建文档，并采用批量提交。提交前会先检查数据流是否存在，不存在就创建。
+        /// </summary>
+        /// <typeparam name="TEntity"></typeparam>
+        /// <param name="entity"></param>
+        /// <param name="indexName"></param>
+        /// <returns>如果索引不存在且创建失败，暂时缓存或批量提交成功则返回null</returns>
+        public Task<Exception> IndexDSBuffered<T>(T entity, string indexName) where T : class
+        {
+            Exception result;
+
+
+            if (docBuffer.TryGetValue(indexName, out ConcurrentQueue<object> docQ))
+            {
+                IEnumerable<object> getQ(int count)
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (docQ.TryDequeue(out object obj)) yield return obj;
+                        else break;
+                    };
+                }
+
+                docQ.Enqueue(entity);
+                lock (docQ)
+                {
+                    if (docQ.Count > BULK_BUFFER_THRESHOLD)
+                    {
+                        if (EnsureDS(indexName).Result == true)
+                        {
+
+
+                            var r = IndexBulkDS(getQ(docQ.Count), indexName).Result;
+                            result = r.IsValid ? null : r.OriginalException;
+                        }
+                    }
+
+                    //溢出缓冲处理（少见），如果掉线此方法也不会被调用
+                    if (docQ.Count > BULK_BUFFER_LIMIT) foreach (var _ in getQ(BULK_BUFFER_THRESHOLD / 4)) ;  //从顶部删除四分之一
+                }
+            }
+            else
+            {
+                docBuffer.TryAdd(indexName, new ConcurrentQueue<object>(new[] { entity }));
+            }
+
+            result = new Exception("[ESSvc]\t批量提交操作失败！");
+            return Task.FromResult(result);
         }
 
         /// <summary>
@@ -364,6 +439,13 @@ namespace Wima.Log
         /// </summary>
         public ConcurrentDictionary<string, int?> DictLastReplicaNumber { get; set; } = new ConcurrentDictionary<string, int?>();
 
+        public void Dispose()
+        {
+            Client = null;
+            _indexCache.Clear();
+            IsDisposed = true;
+        }
+
         public GetIndexSettingsResponse SetRefreshInterval(string indexName, Time refreshInterval, GetIndexSettingsResponse settingResponse = null)
         {
             settingResponse ??= Client.Indices.GetSettings(indexName);
@@ -388,35 +470,64 @@ namespace Wima.Log
             return null;
         }
 
-        public void Dispose()
-        {
-            Client = null;
-            _indexCache.Clear();
-            IsDisposed = true;
-        }
-
         #endregion ES设置
 
         #region 状态
 
         public string ClusterInfo { get; private set; } = "...";
 
-        public void GetESInfo() => ClusterInfo = Client?.RootNodeInfoAsync().ContinueWith(i => i.Result.IsValid ?
-                                                $"节点地址：{LogMan.ESService.Config.Urls}\r\n节点名：{i.Result.Name}\r\n集群名：{i.Result.ClusterName}\r\n版本：{i.Result.Version.Number}"
-                                                : null).Result ?? "...";
-
         public DateTime LastPingTime { get; private set; }
+
+        public async void GetESInfoAsync() => ClusterInfo = await Client?.RootNodeInfoAsync().ContinueWith(i => i.Result.IsValid ?
+                                                        $"节点地址：{Config.Urls}\r\n节点名：{i.Result.Name}\r\n集群名：{i.Result.ClusterName}\r\n版本：{i.Result.Version.Number}\r\n最后在线：{LastPingTime}"
+                                                : null) ?? "...";
 
         /// <summary>
         /// Ping ElasticSearch
         /// </summary>
         /// <returns></returns>
-        public Task<bool> Ping() => LogMan.ESService.Client.PingAsync().ContinueWith(r =>
+        public Task<bool> Ping() => Client?.PingAsync().ContinueWith(r =>
         {
             if (r.Result.IsValid) LastPingTime = DateTime.Now;
             return r.Result.IsValid;
         });
 
         #endregion 状态
+    }
+
+    internal class FakeCreateResponse : CreateResponse
+    {
+        private bool _isValid = false;
+
+        public FakeCreateResponse(bool isValid) => _isValid = isValid;
+
+        public override bool IsValid => _isValid;
+    }
+
+    internal class FakeDeleteDataStreamResponse : DeleteDataStreamResponse
+    {
+        private bool _isValid = false;
+
+        public FakeDeleteDataStreamResponse(bool isValid) => _isValid = isValid;
+
+        public override bool IsValid => _isValid;
+    }
+
+    internal class FakeSearchResponse<T> : SearchResponse<T> where T : class
+    {
+        private bool _isValid = false;
+
+        public FakeSearchResponse(bool isValid) => _isValid = isValid;
+
+        public override bool IsValid => _isValid;
+    }
+
+    internal class FakeBulkResponse : BulkResponse
+    {
+        private bool _isValid = false;
+
+        public FakeBulkResponse(bool isValid) => _isValid = isValid;
+
+        public override bool IsValid => _isValid;
     }
 }
