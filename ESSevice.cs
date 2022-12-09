@@ -82,8 +82,9 @@ namespace Wima.Log
             //另开线程检查服务器是否在线
             pingCancellationTokenSource?.Cancel();
             pingCancellationTokenSource = new();
-            Task.Run(() =>
+            Task.Run(async () =>
             {
+                int count = 0;
                 var tokenSource = pingCancellationTokenSource; //保留一份引用副本，防止在更新时实例改变
                 LogMan.Info($"[ESSvc]\tPing线程({tokenSource.GetHashCode()})启动！");
                 while (!tokenSource.IsCancellationRequested)
@@ -204,14 +205,12 @@ namespace Wima.Log
 
         #region 文档
 
-        public const int BULK_BUFFER_LIMIT = BULK_BUFFER_THRESHOLD * 2;
-        public const int BULK_BUFFER_THRESHOLD = 100;
-        public const int MAX_DOC_CACHE_SIZE = 20;
-        public const int MAX_DOC_CACHE_WAIT_IN_SECONDS = 10;
-
         public readonly DeleteDataStreamResponse FakeDeleteDataStreamResponseFalse = new FakeDeleteDataStreamResponse(false);
         public readonly CreateResponse FakeTaskCreateResponseFalse = new FakeCreateResponse(false);
         public readonly CreateResponse FakeTaskCreateResponseTrue = new FakeCreateResponse(true);
+        public int BulkBufferLimit = 200;
+        public int BulkBufferThreshhold = 100;
+        public int MaxDocCacheSize = 20;
         private readonly ConcurrentDictionary<string, ConcurrentQueue<object>> docBuffer = new();
 
         /// <summary>
@@ -339,45 +338,42 @@ namespace Wima.Log
         /// <returns>如果索引不存在且创建失败，暂时缓存或批量提交成功则返回null</returns>
         public Task<Exception> IndexDSBuffered<T>(T entity, string indexName) where T : class
         {
-            Exception result;
-
-
-            if (docBuffer.TryGetValue(indexName, out ConcurrentQueue<object> docQ))
+            return Task.Run(() =>
             {
-                IEnumerable<object> getQ(int count)
-                {
-                    for (int i = 0; i < count; i++)
-                    {
-                        if (docQ.TryDequeue(out object obj)) yield return obj;
-                        else break;
-                    };
-                }
+                Exception result = null;
 
-                docQ.Enqueue(entity);
-                lock (docQ)
+                if (docBuffer.TryGetValue(indexName, out ConcurrentQueue<object> docQ))
                 {
-                    if (docQ.Count > BULK_BUFFER_THRESHOLD)
+                    IEnumerable<object> getQ(int count)
                     {
-                        if (EnsureDS(indexName).Result == true)
+                        for (int i = 0; i < count; i++)
                         {
-
-
-                            var r = IndexBulkDS(getQ(docQ.Count), indexName).Result;
-                            result = r.IsValid ? null : r.OriginalException;
-                        }
+                            if (docQ.TryDequeue(out object obj)) yield return obj;
+                            else break;
+                        };
                     }
 
-                    //溢出缓冲处理（少见），如果掉线此方法也不会被调用
-                    if (docQ.Count > BULK_BUFFER_LIMIT) foreach (var _ in getQ(BULK_BUFFER_THRESHOLD / 4)) ;  //从顶部删除四分之一
-                }
-            }
-            else
-            {
-                docBuffer.TryAdd(indexName, new ConcurrentQueue<object>(new[] { entity }));
-            }
+                    docQ.Enqueue(entity);
+                    lock (docQ)
+                    {
+                        if (docQ.Count > BulkBufferThreshhold)
+                        {
+                            if (EnsureDS(indexName).Result == true)
+                            {
+                                var r = IndexBulkDS(getQ(docQ.Count), indexName).Result;
+                                result = r.IsValid ? null : r.OriginalException;
+                            }
+                            else result = new Exception($"[ESSvc]\t无法创建指定索引！{indexName}");
+                        }
 
-            result = new Exception("[ESSvc]\t批量提交操作失败！");
-            return Task.FromResult(result);
+                        //溢出缓冲处理（少见），如果掉线此方法也不会被调用
+                        if (docQ.Count > BulkBufferLimit) foreach (var _ in getQ(BulkBufferThreshhold / 4)) ;  //从顶部删除四分之一
+                    }
+                }
+                else docBuffer.TryAdd(indexName, new ConcurrentQueue<object>(new[] { entity }));
+
+                return result;
+            });
         }
 
         /// <summary>
@@ -479,7 +475,7 @@ namespace Wima.Log
         public DateTime LastPingTime { get; private set; }
 
         public async void GetESInfoAsync() => ClusterInfo = await Client?.RootNodeInfoAsync().ContinueWith(i => i.Result.IsValid ?
-                                                        $"节点地址：{Config.Urls}\r\n节点名：{i.Result.Name}\r\n集群名：{i.Result.ClusterName}\r\n版本：{i.Result.Version.Number}\r\n最后在线：{LastPingTime}"
+                                                        $"节点地址：{Config.Urls}\r\n节点名：{i.Result.Name}\r\n集群名：{i.Result.ClusterName}\r\n版本：{i.Result.Version.Number}\r\n"
                                                 : null) ?? "...";
 
         /// <summary>
@@ -493,6 +489,15 @@ namespace Wima.Log
         });
 
         #endregion 状态
+    }
+
+    internal class FakeBulkResponse : BulkResponse
+    {
+        private bool _isValid = false;
+
+        public FakeBulkResponse(bool isValid) => _isValid = isValid;
+
+        public override bool IsValid => _isValid;
     }
 
     internal class FakeCreateResponse : CreateResponse
@@ -518,15 +523,6 @@ namespace Wima.Log
         private bool _isValid = false;
 
         public FakeSearchResponse(bool isValid) => _isValid = isValid;
-
-        public override bool IsValid => _isValid;
-    }
-
-    internal class FakeBulkResponse : BulkResponse
-    {
-        private bool _isValid = false;
-
-        public FakeBulkResponse(bool isValid) => _isValid = isValid;
 
         public override bool IsValid => _isValid;
     }
