@@ -1,5 +1,6 @@
 ﻿using Common.Logging;
 using Common.Logging.Factory;
+using Microsoft.Extensions.ObjectPool;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -29,7 +30,7 @@ namespace Wima.Log
         public const string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd HH:mm:ss";
         public const string DEFAULT_LOGROOT_NAME = "logs";
         public const char ES_INDEX_SEPARATOR = '-';
-        public const string INTERNAL_ERROR_STR = "[LogSvc Internal Error]";
+        public const string INTERNAL_ERROR_STR = "[LogMan Internal Error]";
         public const string LINE_REPLACEMENT_PREFIX = "<< ";
 
         /// <summary>
@@ -42,17 +43,20 @@ namespace Wima.Log
         /// </summary>
         public static int LogRenewalPeriodInHour = 2;
 
+        private readonly StringBuilder _logBuf = new(DefaultMaxBufferLength);
+
+        private readonly DefaultObjectPool<StringBuilder> stringBuilderPool = new(new DefaultPooledObjectPolicy<StringBuilder>());
+        private readonly DefaultObjectPool<LogLine> logLinePool = new(new DefaultPooledObjectPolicy<LogLine>());
+
         /// <summary>
         /// For preventing race condition during accessing LogBuf
         /// </summary>
-        protected readonly object syncLogBuf = new();
+        private readonly object syncLogBuf = new();
 
         /// <summary>
         /// For preventing race condition during writing log to file
         /// </summary>
-        protected readonly object syncLogWriter = new();
-
-        protected StringBuilder _logBuf = new(DefaultMaxBufferLength);
+        private readonly object syncLogWriter = new();
 
         private string _esIndexName;
 
@@ -136,7 +140,7 @@ namespace Wima.Log
         /// <summary>
         /// Reggistered loggers
         /// </summary>
-        public static ConcurrentDictionary<string, LogMan> LogBook { get; set; } = new ConcurrentDictionary<string, LogMan>();
+        public static ConcurrentDictionary<string, LogMan> LogBook { get; set; } = new();
 
         /// <summary>
         /// Global log root path
@@ -266,7 +270,7 @@ namespace Wima.Log
             });
 
         /// <summary>
-        /// Get LogRoot path once
+        /// Set LogRoot path to default
         /// </summary>
         public static string ResetLogRoot() => LogRoot = Path.GetFullPath(Environment.CurrentDirectory + Path.DirectorySeparatorChar + DEFAULT_LOGROOT_NAME + Path.DirectorySeparatorChar);
 
@@ -294,7 +298,7 @@ namespace Wima.Log
         }
 
         /// <summary>
-        /// Del object from Elastic Search, if enabled.
+        /// Del datastream from Elastic Search, if enabled.
         /// </summary>
         public async Task<Nest.DeleteDataStreamResponse> ESDelDataStreams(IEnumerable<string> dsNames) => ESService.IsOnline ? await ESService?.Client.Indices.DeleteDataStreamAsync(new Nest.Names(dsNames)).ContinueWith(i =>
         {
@@ -317,7 +321,6 @@ namespace Wima.Log
             if (i.Result != null)
             {
                 _logBuf.AppendLine("[ESPut]Fail!\t" + i.Result.Message);
-
             }
             return i.Result;
         }) : null;
@@ -331,8 +334,8 @@ namespace Wima.Log
 
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
         {
-            //Construction of logline
-            StringBuilder logLineBuilder = new();
+            StringBuilder logLineBuilder = stringBuilderPool.Get();
+            logLineBuilder.Clear();
 
             logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message}" +
                 (ex == null ? "" : $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex.Message + "\r\n-> " + ex.InnerException?.Message : "")}") + Environment.NewLine);
@@ -340,22 +343,26 @@ namespace Wima.Log
             StringBuilder stackChain = null;
             if (LogModes.HasFlag(LogMode.StackTrace))
             {
-                stackChain = new StringBuilder();
+                stackChain = stringBuilderPool.Get();
+                stackChain.Clear();
                 stackChain.Append(" <- ");
                 foreach (var i in new StackTrace().GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith("."))) stackChain.Append("/" + i);
                 stackChain.Append(Environment.NewLine + Environment.NewLine);
                 logLineBuilder.Append(stackChain);
             }
 
-            string _logLine = logLineBuilder.ToString();
+            var _logLine = logLineBuilder.ToString();
 
             //Update LogBuf:Cut tail and process Replacement Mark "<<" in _logBuf
-            int _firstNL;
             lock (syncLogBuf)
             {
                 if (_logBuf.Length > DefaultMaxBufferLength) _logBuf.Remove(DefaultMaxBufferLength - 4096, 4096);
+
+                int _firstNL;
                 if (_logLine.Contains(LINE_REPLACEMENT_PREFIX) && (_firstNL = _logBuf.ToString().IndexOf(Environment.NewLine)) > 0)
+                {
                     _logBuf.Remove(0, _firstNL + Environment.NewLine.Length);  //remove first line from begining of _logBuf
+                }
                 _logBuf.Insert(0, _logLine);
             }
 
@@ -426,15 +433,23 @@ namespace Wima.Log
 
             //Post to ElasticSearch, if enabled.
             if (LogModes.HasFlag(LogMode.ElasticSearch) && ESService != null)
-                _ = ESPut(
-                  new LogLine(DateTime.Now.Ticks, DateTime.Now,
-                  level.ToString(),
-                  message?.ToString(),
-                  ex?.Message + "\r\n-> " + ex?.InnerException?.Message,
-                   stackChain?.ToString()));
+            {
+                var line = logLinePool.Get();
+                line.Id = DateTime.Now.Ticks;
+                line.Timestamp = DateTime.Now;
+                line.LogLevel = level.ToString();
+                line.LogMsg = message?.ToString();
+                line.VerBoseMsg = ex?.Message + "\r\n-> " + ex?.InnerException?.Message;
+                line.StackTrace = stackChain?.ToString();
+                ESPut(line).ContinueWith(i => logLinePool.Return(line));
+            }
 
             //Post to Console, as the last output to indicate log accomplishes.
             if (LogModes.HasFlag(LogMode.Console)) Console.Write((ShowLogName ? Name + "\t" : "") + _logLine);
+
+            //回收StringBuilder实例
+            stringBuilderPool.Return(stackChain);
+            stringBuilderPool.Return(logLineBuilder);
         }
 
         private static ILog GetLogger(string key) => LogManager.GetLogger(key);
