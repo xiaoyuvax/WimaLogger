@@ -82,7 +82,7 @@ namespace Wima.Log
             //另开线程检查服务器是否在线
             pingCancellationTokenSource?.Cancel();
             pingCancellationTokenSource = new();
-            Task.Run(async () =>
+            Task.Run(() =>
             {
                 int count = 0;
                 var tokenSource = pingCancellationTokenSource; //保留一份引用副本，防止在更新时实例改变

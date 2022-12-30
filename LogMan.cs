@@ -32,7 +32,6 @@ namespace Wima.Log
         public const char ES_INDEX_SEPARATOR = '-';
         public const string INTERNAL_ERROR_STR = "[LogMan Internal Error]";
         public const string LINE_REPLACEMENT_PREFIX = "<< ";
-
         /// <summary>
         /// Preserve Period in Hour, 0 = forever
         /// </summary>
@@ -43,11 +42,11 @@ namespace Wima.Log
         /// </summary>
         public static int LogRenewalPeriodInHour = 2;
 
+        private const char INVALID_CHAR_REPLACER = '-';
         private readonly StringBuilder _logBuf = new(DefaultMaxBufferLength);
 
-        private readonly DefaultObjectPool<StringBuilder> stringBuilderPool = new(new DefaultPooledObjectPolicy<StringBuilder>());
         private readonly DefaultObjectPool<LogLine> logLinePool = new(new DefaultPooledObjectPolicy<LogLine>());
-
+        private readonly DefaultObjectPool<StringBuilder> stringBuilderPool = new(new DefaultPooledObjectPolicy<StringBuilder>());
         /// <summary>
         /// For preventing race condition during accessing LogBuf
         /// </summary>
@@ -70,17 +69,15 @@ namespace Wima.Log
         {
             StartedAt = DateTime.Now;
             LogModes = GlobalLogMode;
-            foreach (char c in Path.GetInvalidFileNameChars()) logName = logName.Replace(c, '-');
+            foreach (char c in Path.GetInvalidFileNameChars()) logName = logName.Replace(c, INVALID_CHAR_REPLACER);
 
             if (LogModes.HasFlag(LogMode.CommonLog))
-            {
-                try { CommonLogger = GetLogger(logName); }
+                try { _commonLogger = GetLogger(logName); }
                 catch (Exception ex)
                 {
                     LogModes = (GlobalLogMode ^ LogMode.CommonLog) | LogMode.Native;
                     Info(INTERNAL_ERROR_STR + "Failure initalizing CommonLog,use native mode instead!", ex);
                 }
-            }
 
             LogLevel = logLevel ?? GlobalLogLevel;
 
@@ -250,13 +247,12 @@ namespace Wima.Log
         /// </summary>
         private static string invalidUrlChar { get; } = new string(Path.GetInvalidFileNameChars()) + new string(Path.GetInvalidPathChars());
 
+        private ILog _commonLogger { get; set; } = null;
+
         /// <summary>
         /// StreamWriter for writing
         /// </summary>
         private StreamWriter _logWriter { get; set; }
-
-        private ILog CommonLogger { get; set; } = null;
-
         /// <summary>
         /// Intialized Shared ElasticSearch Client, which is used by all LogMan instances.
         /// </summary>
@@ -388,37 +384,37 @@ namespace Wima.Log
                 }
 
             //Post to CommonLogger ,if enabled.
-            if (LogModes.HasFlag(LogMode.CommonLog) && CommonLogger != null)
+            if (LogModes.HasFlag(LogMode.CommonLog) && _commonLogger != null)
                 switch (level)
                 {
                     case LogLevel.Trace when IsTraceEnabled:
-                        if (ex == null) CommonLogger.Trace(message);
-                        else CommonLogger.Trace(message, ex);
+                        if (ex == null) _commonLogger.Trace(message);
+                        else _commonLogger.Trace(message, ex);
                         break;
 
                     case LogLevel.Debug when IsDebugEnabled:
-                        if (ex == null) CommonLogger.Debug(message);
-                        else CommonLogger.Debug(message, ex);
+                        if (ex == null) _commonLogger.Debug(message);
+                        else _commonLogger.Debug(message, ex);
                         break;
 
                     case LogLevel.Info when IsInfoEnabled:
-                        if (ex == null) CommonLogger.Info(message);
-                        else CommonLogger.Info(message, ex);
+                        if (ex == null) _commonLogger.Info(message);
+                        else _commonLogger.Info(message, ex);
                         break;
 
                     case LogLevel.Warn when IsWarnEnabled:
-                        if (ex == null) CommonLogger.Warn(message);
-                        else CommonLogger.Warn(message, ex);
+                        if (ex == null) _commonLogger.Warn(message);
+                        else _commonLogger.Warn(message, ex);
                         break;
 
                     case LogLevel.Error when IsErrorEnabled:
-                        if (ex == null) CommonLogger.Error(message);
-                        else CommonLogger.Error(message, ex);
+                        if (ex == null) _commonLogger.Error(message);
+                        else _commonLogger.Error(message, ex);
                         break;
 
                     case LogLevel.Fatal when IsFatalEnabled:
-                        if (ex == null) CommonLogger.Fatal(message);
-                        else CommonLogger.Fatal(message, ex);
+                        if (ex == null) _commonLogger.Fatal(message);
+                        else _commonLogger.Fatal(message, ex);
                         break;
 
                     case LogLevel.Trace when !IsTraceEnabled:
