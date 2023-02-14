@@ -24,7 +24,7 @@ namespace Wima.Log
         ElasticSearch = 0b100000
     }
 
-    public sealed class LogMan : AbstractLogger, IDisposable
+    public class WimaLoggerBase : AbstractLogger, IDisposable
     {
         public const string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
         public const string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd HH:mm:ss";
@@ -32,6 +32,7 @@ namespace Wima.Log
         public const char ES_INDEX_SEPARATOR = '-';
         public const string INTERNAL_ERROR_STR = "[LogMan Internal Error]";
         public const string LINE_REPLACEMENT_PREFIX = "<< ";
+
         /// <summary>
         /// Preserve Period in Hour, 0 = forever
         /// </summary>
@@ -47,6 +48,7 @@ namespace Wima.Log
 
         private readonly DefaultObjectPool<LogLine> logLinePool = new(new DefaultPooledObjectPolicy<LogLine>());
         private readonly DefaultObjectPool<StringBuilder> stringBuilderPool = new(new DefaultPooledObjectPolicy<StringBuilder>());
+
         /// <summary>
         /// For preventing race condition during accessing LogBuf
         /// </summary>
@@ -65,7 +67,7 @@ namespace Wima.Log
         ///
         private string _name;
 
-        public LogMan(string logName, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
+        public WimaLoggerBase(string logName, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
         {
             StartedAt = DateTime.Now;
             LogModes = GlobalLogMode;
@@ -103,11 +105,11 @@ namespace Wima.Log
             Info($"[LogMan:{Name}]\tOK!");
         }
 
-        public LogMan(Type type, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
+        public WimaLoggerBase(Type type, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
                     : this(type.Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
         { }
 
-        public LogMan(object obj, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
+        public WimaLoggerBase(object obj, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
                     : this(obj.GetType().Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
         { }
 
@@ -137,7 +139,7 @@ namespace Wima.Log
         /// <summary>
         /// Reggistered loggers
         /// </summary>
-        public static ConcurrentDictionary<string, LogMan> LogBook { get; set; } = new();
+        public static ConcurrentDictionary<string, WimaLoggerBase> LogBook { get; set; } = new();
 
         /// <summary>
         /// Global log root path
@@ -253,6 +255,7 @@ namespace Wima.Log
         /// StreamWriter for writing
         /// </summary>
         private StreamWriter _logWriter { get; set; }
+
         /// <summary>
         /// Intialized Shared ElasticSearch Client, which is used by all LogMan instances.
         /// </summary>
@@ -330,11 +333,21 @@ namespace Wima.Log
 
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
         {
+            //multiple threads cannot share the same logLineBuilder, so it has to be Get() from stringBuilderPool and Return() before exit the procedure.
             StringBuilder logLineBuilder = stringBuilderPool.Get();
             logLineBuilder.Clear();
-
-            logLineBuilder.Append($"{(ShowDateTime ? DateTime.Now.ToString(LogLineTimeFormat) : "")} {(ShowLevel ? level.ToString().ToUpper() : "")}\t{message}" +
-                (ex == null ? "" : $"{(LogModes.HasFlag(LogMode.Verbose) ? "\r\n-> " + ex.Message + "\r\n-> " + ex.InnerException?.Message : "")}") + Environment.NewLine);
+            if (ShowDateTime) logLineBuilder.Append(DateTime.Now.ToString(LogLineTimeFormat));
+            if (ShowLevel) logLineBuilder.Append(level.ToString().ToUpper());
+            logLineBuilder.Append("\t");
+            logLineBuilder.Append(message);
+            if (ex != null && LogModes.HasFlag(LogMode.Verbose))
+            {
+                logLineBuilder.Append("\r\n-> ");
+                logLineBuilder.Append(ex.Message);
+                logLineBuilder.Append("\r\n-> ");
+                logLineBuilder.Append(ex.InnerException?.Message);
+            }
+            logLineBuilder.Append(Environment.NewLine);
 
             StringBuilder stackChain = null;
             if (LogModes.HasFlag(LogMode.StackTrace))
@@ -343,7 +356,8 @@ namespace Wima.Log
                 stackChain.Clear();
                 stackChain.Append(" <- ");
                 foreach (var i in new StackTrace().GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith("."))) stackChain.Append("/" + i);
-                stackChain.Append(Environment.NewLine + Environment.NewLine);
+                stackChain.Append(Environment.NewLine);
+                stackChain.Append(Environment.NewLine);
                 logLineBuilder.Append(stackChain);
             }
 
@@ -363,26 +377,27 @@ namespace Wima.Log
             }
 
             //Log Native(Disk)
-            renewLogWriter(); //Renew LogStreamWriter in case log path changes
-            if (LogModes.HasFlag(LogMode.Native) && _logWriter != null)
-                for (int i = 0; i < 2; i++)
-                {
-                    //if happens to fail writing during _logwriter renewal(occasionally in case threads pile up), lock new _logWriter for anothter trial.
-                    try
+            if (LogModes.HasFlag(LogMode.Native))
+            {
+                renewLogWriter(); //Renew LogStreamWriter in case log path changes
+                if (_logWriter != null) for (int i = 0; i < 2; i++)
                     {
-                        lock (_logWriter) _logWriter.Write(_logLine);
-                        break;
-                    }
-                    catch (Exception ex2)
-                    {
-                        if (i > 0)
+                        //if happens to fail writing during _logwriter renewal(occasionally in case threads pile up), lock new _logWriter for anothter trial.
+                        try
                         {
-                            lock (syncLogBuf) _logBuf.Insert(0, INTERNAL_ERROR_STR + "Bad log stream:" + ex2.Message);
+                            lock (_logWriter) _logWriter.Write(_logLine);
                             break;
                         }
+                        catch (Exception ex2)
+                        {
+                            if (i > 0)
+                            {
+                                lock (syncLogBuf) _logBuf.Insert(0, INTERNAL_ERROR_STR + "Bad log stream:" + ex2.Message);
+                                break;
+                            }
+                        }
                     }
-                }
-
+            }
             //Post to CommonLogger ,if enabled.
             if (LogModes.HasFlag(LogMode.CommonLog) && _commonLogger != null)
                 switch (level)

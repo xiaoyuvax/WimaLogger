@@ -37,7 +37,7 @@ namespace Wima.Log
         public const string TimeFormat = "HH:mm:ss";
         private const int PingPeriodInMs = 60000;
         private readonly ConcurrentDictionary<string, DateTime> _indexCache = new();
-        private readonly LogMan LogMan = new(typeof(ElasticSearchService));
+        private readonly WimaLogger LogMan = new(typeof(ElasticSearchService));
         private CancellationTokenSource pingCancellationTokenSource;
 
         public ElasticSearchService(IOptions<ESConfig> esConfig) => CreateClient(esConfig.Value);
