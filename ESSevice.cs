@@ -8,12 +8,14 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+#if !BFLAT
 namespace System.Runtime.CompilerServices
 {
     //This is a small bug in Visual Studio 2019 that hasn't been fixed yet. To solve this, you need to add a dummy class named IsExternalInit with the namespace System.Runtime.CompilerServices anywhere in your project.
     //If writing a library it's best to make this class internal, as otherwise you can end up with two libraries both defining the same type.
     internal static class IsExternalInit { }
 }
+#endif
 
 namespace Wima.Log
 {
