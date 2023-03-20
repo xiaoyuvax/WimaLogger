@@ -86,7 +86,6 @@ namespace Wima.Log
             pingCancellationTokenSource = new();
             Task.Run(() =>
             {
-                int count = 0;
                 var tokenSource = pingCancellationTokenSource; //保留一份引用副本，防止在更新时实例改变
                 LogMan.Info($"[ESSvc]\tPing线程({tokenSource.GetHashCode()})启动！");
                 while (!tokenSource.IsCancellationRequested)
@@ -267,7 +266,6 @@ namespace Wima.Log
         public BulkAllObservable<T> IndexAll<T>(IEnumerable<T> docs, string indexName, string alias = null, int size = 50000, Func<BulkResponseItemBase, T, BulkAllDescriptor<T>> droppedDocCallBack = null) where T : class
         {
             BulkAllObservable<T> response = null;
-            int c = 0;
             try
             {
                 if (ExistsIndex(indexName).Result) response = Client.BulkAll(docs, t1 => t1.Index(indexName)
