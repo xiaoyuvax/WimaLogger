@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Wima.Log
+﻿namespace Wima.Log
 {
     public abstract class IndexableDoc
     {

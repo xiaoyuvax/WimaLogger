@@ -10,7 +10,7 @@ namespace Wima.Log
 
         public WimaLogger(object o) : base(o) { }
 
-        public WimaLogger(string logName, CM.LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = "yy-MM-dd HH:mm:ss")
+        public WimaLogger(string logName, CM.LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
             : base(logName, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat) { }
 
         public IDisposable BeginScope<TState>(TState state) where TState : notnull => default!;

@@ -1,25 +1,23 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
-    <AssemblyVersion>1.7.0.0</AssemblyVersion>
-    <FileVersion>1.7.0.0</FileVersion>
-	  <LangVersion>11.0</LangVersion>
-	  <GenerateDocumentationFile>False</GenerateDocumentationFile>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFrameworks>net7.0;net8.0;netstandard2.0</TargetFrameworks>
+		<AssemblyVersion>1.7.3.6</AssemblyVersion>
+		<FileVersion>1.7.3.6</FileVersion>
+		<LangVersion>11.0</LangVersion>
+		<GenerateDocumentationFile>False</GenerateDocumentationFile>
+		<ImplicitUsings>true</ImplicitUsings>
+	</PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <DocumentationFile>Wima.LogService.xml</DocumentationFile>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Common.Logging" Version="3.4.1" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="7.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="7.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Configuration" Version="7.0.0" />
-    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="7.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="7.0.1" />
-    <PackageReference Include="NEST" Version="7.17.5" />
-  </ItemGroup>
+	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" Condition="'$(TargetFramework)'=='net8.0' Or '$(TargetFramework)'=='net7.0'" />
+	</ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Common.Logging" Version="3.4.1" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" Condition="'$(TargetFramework)'=='netstandard2.0'" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Configuration" Version="8.0.0" Condition="'$(TargetFramework)'=='netstandard2.0'"/>
+		<PackageReference Include="Microsoft.Extensions.ObjectPool" Version="8.0.0" Condition="'$(TargetFramework)'=='netstandard2.0'" />
+		<PackageReference Include="NEST" Version="7.17.5" />
+	</ItemGroup>
 
 </Project>

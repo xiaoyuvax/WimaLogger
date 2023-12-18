@@ -1,14 +1,9 @@
 ﻿using Common.Logging;
 using Common.Logging.Factory;
 using Microsoft.Extensions.ObjectPool;
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Wima.Log
 {
@@ -45,7 +40,6 @@ namespace Wima.Log
 
         private const char INVALID_CHAR_REPLACER = '-';
         private readonly StringBuilder _logBuf = new(DefaultMaxBufferLength);
-
         private readonly DefaultObjectPool<LogLine> logLinePool = new(new DefaultPooledObjectPolicy<LogLine>());
         private readonly DefaultObjectPool<StringBuilder> stringBuilderPool = new(new DefaultPooledObjectPolicy<StringBuilder>());
 
@@ -149,11 +143,6 @@ namespace Wima.Log
         public static DateTime StartedAt { get; private set; }
 
         /// <summary>
-        /// DateTimeFormat for loglines
-        /// </summary>
-        public string DateTimeFormat { get; set; }
-
-        /// <summary>
         /// Cached ElasticSearch IndexName,to avoid calculating the IndexName from time to time.
         /// This property would not be updated after ESIndexPrefix, but will be updated upon setting Name value.
         /// </summary>
@@ -167,15 +156,11 @@ namespace Wima.Log
         public string ESIndexPrefix { get; set; } = "logs" + ES_INDEX_SEPARATOR;
 
         public override bool IsDebugEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Debug);
-
         public override bool IsErrorEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Error);
-
         public override bool IsFatalEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Fatal);
-
         public override bool IsInfoEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Info);
-
         public override bool IsTraceEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Trace);
-
+        public bool IsVerbose => LogModes.HasFlag(LogMode.Verbose);
         public override bool IsWarnEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Warn);
 
         /// <summary>
@@ -202,7 +187,7 @@ namespace Wima.Log
         /// <summary>
         /// DateTime format for log lines
         /// </summary>
-        public string LogLineTimeFormat { get; set; } = DEFAULT_LOGLINE_TIME_FORMAT;
+        public string DateTimeFormat { get; set; } = DEFAULT_LOGLINE_TIME_FORMAT;
 
         /// <summary>
         /// Logmodes for current instance, it takes effect instantly.
@@ -254,7 +239,7 @@ namespace Wima.Log
         /// <summary>
         /// StreamWriter for writing
         /// </summary>
-        private StreamWriter _logWriter { get; set; }
+        private StreamWriter _logWriter;
 
         /// <summary>
         /// Intialized Shared ElasticSearch Client, which is used by all LogMan instances.
@@ -317,10 +302,7 @@ namespace Wima.Log
         /// </summary>
         public async Task<Exception> ESPut<T>(T obj) where T : class => ESService.IsOnline ? await ESService?.IndexDSBuffered(obj, EsIndexName).ContinueWith(i =>
         {
-            if (i.Result != null)
-            {
-                _logBuf.AppendLine("[ESPut]Fail!\t" + i.Result.Message);
-            }
+            if (i.Result != null) _logBuf.AppendLine("[ESPut]Fail!\t" + i.Result.Message);
             return i.Result;
         }) : null;
 
@@ -335,17 +317,25 @@ namespace Wima.Log
         {
             //multiple threads cannot share the same logLineBuilder, so it has to be Get() from stringBuilderPool and Return() before exit the procedure.
             StringBuilder logLineBuilder = stringBuilderPool.Get();
-            logLineBuilder.Clear();
-            if (ShowDateTime) logLineBuilder.Append(DateTime.Now.ToString(LogLineTimeFormat));
-            if (ShowLevel) logLineBuilder.Append(level.ToString().ToUpper());
+            if (logLineBuilder == null) Debugger.Break();
+            logLineBuilder?.Clear();
+            if (ShowDateTime) logLineBuilder.Append(DateTime.Now.ToString(DateTimeFormat));
+            if (ShowLevel)
+            {
+                logLineBuilder.Append("\t");
+                logLineBuilder.Append(level.ToString().ToUpper());
+            }
             logLineBuilder.Append("\t");
             logLineBuilder.Append(message);
             if (ex != null && LogModes.HasFlag(LogMode.Verbose))
             {
-                logLineBuilder.Append("\r\n-> ");
+                logLineBuilder.Append("\t");
                 logLineBuilder.Append(ex.Message);
-                logLineBuilder.Append("\r\n-> ");
-                logLineBuilder.Append(ex.InnerException?.Message);
+                if (ex.InnerException != null)
+                {
+                    logLineBuilder.Append("\t");
+                    logLineBuilder.Append(ex.InnerException.Message);
+                }
             }
             logLineBuilder.Append(Environment.NewLine);
 
@@ -485,12 +475,12 @@ namespace Wima.Log
                             var logPath = Path.GetDirectoryName(LogPath);
                             Directory.CreateDirectory(logPath);
                             var writer = new StreamWriter(new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
-                            if (_logWriter != null)
+                            var oldWriter = Interlocked.Exchange(ref _logWriter, writer);
+                            if (oldWriter != null)
                             {
-                                _logWriter.Flush();
-                                _logWriter.Dispose();
+                                oldWriter.Flush();
+                                oldWriter.Dispose();
                             }
-                            _logWriter = writer;
 
                             //Clean outdated log files,if necessary
                             if (LogPreservePeriodInHour > 0)
