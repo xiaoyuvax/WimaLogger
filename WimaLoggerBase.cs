@@ -2,8 +2,8 @@
 using Common.Logging.Factory;
 using Microsoft.Extensions.ObjectPool;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Text;
+
 
 namespace Wima.Log
 {
@@ -61,10 +61,10 @@ namespace Wima.Log
         ///
         private string _name;
 
-        public WimaLoggerBase(string logName, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
+        public WimaLoggerBase(string logName, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT, LogMode? logMode = null)
         {
             StartedAt = DateTime.Now;
-            LogModes = GlobalLogMode;
+            LogModes = logMode ?? GlobalLogMode;
             foreach (char c in Path.GetInvalidFileNameChars()) logName = logName.Replace(c, INVALID_CHAR_REPLACER);
 
             if (LogModes.HasFlag(LogMode.CommonLog))
@@ -96,15 +96,15 @@ namespace Wima.Log
                 return this;
             });
 
-            Info($"[LogMan:{Name}]\tOK!");
+            Info($"[LogMan:{Name}]\tON!");
         }
 
-        public WimaLoggerBase(Type type, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
-                    : this(type.Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
+        public WimaLoggerBase(Type type, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT, LogMode? logMode = null)
+                    : this(type.Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat, logMode)
         { }
 
-        public WimaLoggerBase(object obj, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
-                    : this(obj.GetType().Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat)
+        public WimaLoggerBase(object obj, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT, LogMode? logMode = null)
+                    : this(obj.GetType().Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat, logMode)
         { }
 
         public static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
@@ -160,7 +160,7 @@ namespace Wima.Log
         public override bool IsFatalEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Fatal);
         public override bool IsInfoEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Info);
         public override bool IsTraceEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Trace);
-        public bool IsVerbose => LogModes.HasFlag(LogMode.Verbose);
+        public bool UseVerbose => LogModes.HasFlag(LogMode.Verbose);
         public override bool IsWarnEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Warn);
 
         /// <summary>
@@ -317,40 +317,40 @@ namespace Wima.Log
         {
             //multiple threads cannot share the same logLineBuilder, so it has to be Get() from stringBuilderPool and Return() before exit the procedure.
             StringBuilder logLineBuilder = stringBuilderPool.Get();
-            if (logLineBuilder == null) Debugger.Break();
-            logLineBuilder?.Clear();
+            logLineBuilder.Clear();
             if (ShowDateTime) logLineBuilder.Append(DateTime.Now.ToString(DateTimeFormat));
             if (ShowLevel)
             {
-                logLineBuilder.Append("\t");
+                logLineBuilder.Append('\t');
                 logLineBuilder.Append(level.ToString().ToUpper());
             }
-            logLineBuilder.Append("\t");
+            logLineBuilder.Append('\t');
             logLineBuilder.Append(message);
-            if (ex != null && LogModes.HasFlag(LogMode.Verbose))
+            if (ex != null && UseVerbose)
             {
-                logLineBuilder.Append("\t");
+                logLineBuilder.Append('\t');
                 logLineBuilder.Append(ex.Message);
                 if (ex.InnerException != null)
                 {
-                    logLineBuilder.Append("\t");
+                    logLineBuilder.Append('\t');
                     logLineBuilder.Append(ex.InnerException.Message);
                 }
             }
             logLineBuilder.Append(Environment.NewLine);
 
             StringBuilder stackChain = null;
+#if !NativeAOT  //没有stackTrace支持            
             if (LogModes.HasFlag(LogMode.StackTrace))
             {
                 stackChain = stringBuilderPool.Get();
                 stackChain.Clear();
                 stackChain.Append(" <- ");
-                foreach (var i in new StackTrace().GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith("."))) stackChain.Append("/" + i);
+                stackChain.Append(string.Join("/", new System.Diagnostics.StackTrace().GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith("."))));
                 stackChain.Append(Environment.NewLine);
                 stackChain.Append(Environment.NewLine);
                 logLineBuilder.Append(stackChain);
             }
-
+#endif
             var _logLine = logLineBuilder.ToString();
 
             //Update LogBuf:Cut tail and process Replacement Mark "<<" in _logBuf
@@ -432,6 +432,7 @@ namespace Wima.Log
                         return;
                 }
 
+#if !NativeAOT
             //Post to ElasticSearch, if enabled.
             if (LogModes.HasFlag(LogMode.ElasticSearch) && ESService != null)
             {
@@ -444,12 +445,14 @@ namespace Wima.Log
                 line.StackTrace = stackChain?.ToString();
                 ESPut(line).ContinueWith(i => logLinePool.Return(line));
             }
+#endif
 
             //Post to Console, as the last output to indicate log accomplishes.
-            if (LogModes.HasFlag(LogMode.Console)) Console.Write((ShowLogName ? Name + "\t" : "") + _logLine);
+            if (LogModes.HasFlag(LogMode.Console)) Console.Write((ShowLogName ? Name + '\t' : "") + _logLine);
 
-            //回收StringBuilder实例
-            stringBuilderPool.Return(stackChain);
+            //Return StringBuilder instance
+            //has to explicitly do null check before Return(), see https://github.com/dotnet/aspnetcore/issues/52873#issuecomment-1865443129
+            if (stackChain != null) stringBuilderPool.Return(stackChain);
             stringBuilderPool.Return(logLineBuilder);
         }
 

@@ -2,7 +2,6 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Configuration;
-using System;
 using CM = Common.Logging;
 
 namespace Wima.Log
@@ -11,11 +10,11 @@ namespace Wima.Log
     {
         public static ILoggingBuilder AddWimaLogger(this ILoggingBuilder builder)
         {
-            builder.AddConfiguration();
+            //builder.AddConfiguration();
 
             builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<ILoggerProvider, WimaLoggerProvider>());
 
-            LoggerProviderOptions.RegisterProviderOptions<WimaLoggerConfiguration, WimaLoggerProvider>(builder.Services);
+            //LoggerProviderOptions.RegisterProviderOptions<WimaLoggerConfiguration, WimaLoggerProvider>(builder.Services);
 
             return builder;
         }

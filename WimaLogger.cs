@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Logging;
-using System;
 using CM = Common.Logging;
 
 namespace Wima.Log
@@ -10,8 +9,8 @@ namespace Wima.Log
 
         public WimaLogger(object o) : base(o) { }
 
-        public WimaLogger(string logName, CM.LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT)
-            : base(logName, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat) { }
+        public WimaLogger(string logName, CM.LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT, LogMode? logMode = null)
+            : base(logName, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat, logMode) { }
 
         public IDisposable BeginScope<TState>(TState state) where TState : notnull => default!;
 
