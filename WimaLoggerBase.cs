@@ -4,7 +4,6 @@ using Microsoft.Extensions.ObjectPool;
 using System.Collections.Concurrent;
 using System.Text;
 
-
 namespace Wima.Log
 {
     [Flags]
@@ -339,18 +338,20 @@ namespace Wima.Log
             logLineBuilder.Append(Environment.NewLine);
 
             StringBuilder stackChain = null;
-#if !NativeAOT  //没有stackTrace支持            
+
             if (LogModes.HasFlag(LogMode.StackTrace))
             {
                 stackChain = stringBuilderPool.Get();
                 stackChain.Clear();
                 stackChain.Append(" <- ");
-                stackChain.Append(string.Join("/", new System.Diagnostics.StackTrace().GetFrames().Select(i => i.GetMethod().Name).Where(i => !i.StartsWith("."))));
+                stackChain.Append(string.Join("/", new System.Diagnostics.StackTrace().GetFrames()
+                    .Select(i => i.ToString())  //use StackFrame.ToString() to be native-aot compatible
+                    .Where(i => !i.StartsWith(".")))); 
                 stackChain.Append(Environment.NewLine);
                 stackChain.Append(Environment.NewLine);
                 logLineBuilder.Append(stackChain);
             }
-#endif
+
             var _logLine = logLineBuilder.ToString();
 
             //Update LogBuf:Cut tail and process Replacement Mark "<<" in _logBuf
@@ -432,7 +433,7 @@ namespace Wima.Log
                         return;
                 }
 
-#if !NativeAOT
+
             //Post to ElasticSearch, if enabled.
             if (LogModes.HasFlag(LogMode.ElasticSearch) && ESService != null)
             {
@@ -445,7 +446,7 @@ namespace Wima.Log
                 line.StackTrace = stackChain?.ToString();
                 ESPut(line).ContinueWith(i => logLinePool.Return(line));
             }
-#endif
+
 
             //Post to Console, as the last output to indicate log accomplishes.
             if (LogModes.HasFlag(LogMode.Console)) Console.Write((ShowLogName ? Name + '\t' : "") + _logLine);
