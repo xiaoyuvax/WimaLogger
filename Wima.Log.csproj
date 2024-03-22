@@ -1,13 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
-	<Import Project="$(SolutionDir)CommonSettings.targets" />
-
 	<PropertyGroup>
 		<TargetFrameworks>net7.0;net8.0;netstandard2.0</TargetFrameworks>
-		<AssemblyVersion>1.7.3.6</AssemblyVersion>
-		<FileVersion>1.7.3.6</FileVersion>
-		<GenerateDocumentationFile>False</GenerateDocumentationFile>
+		<AssemblyVersion>1.7.3.7</AssemblyVersion>
+		<FileVersion>1.7.3.7</FileVersion>		
 		<ImplicitUsings>true</ImplicitUsings>
+		<LangVersion>12</LangVersion>
+		<IsAotCompatible>true</IsAotCompatible>
+		<TrimmerRootAssembly>$(AssemblyName)</TrimmerRootAssembly>
+		<EnableTrimAnalyzer>true</EnableTrimAnalyzer>
 	</PropertyGroup>
 
 	<ItemGroup>

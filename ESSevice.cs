@@ -209,6 +209,8 @@ namespace Wima.Log
         public int MaxDocCacheSize = 20;
         private readonly ConcurrentDictionary<string, ConcurrentQueue<object>> docBuffer = new();
 
+        public static ISearchResponse<T> GetFakeTaskSearchResponseFalse<T>() where T : class => new FakeSearchResponse<T>(false);
+
         /// <summary>
         /// 获取文档
         /// </summary>
@@ -232,9 +234,6 @@ namespace Wima.Log
             })
             );
         }
-
-        public ISearchResponse<T> GetFakeTaskSearchResponseFalse<T>() where T : class => new FakeSearchResponse<T>(false);
-
         /// <summary>
         /// 创建文档。会先检查索引是否存在，然后再创建。
         /// </summary>
@@ -412,7 +411,7 @@ namespace Wima.Log
         /// <param name="batchSize"></param>
         /// <returns></returns>
         public BulkResponse UpdateBulk<T>(IEnumerable<T> e, string indexName, bool upsert = true, bool noItems = false) where T : class =>
-            Client.Bulk(s => s.Index(indexName).UpdateMany<T>(e, (d, adoc) => d.Doc(adoc).DocAsUpsert(upsert)).FilterPath("-_shards", "-metadata", noItems ? "-items" : "items"));  //FilterPath可优化性能
+            Client.Bulk(s => s.Index(indexName).UpdateMany(e, (d, adoc) => d.Doc(adoc).DocAsUpsert(upsert)).FilterPath("-_shards", "-metadata", noItems ? "-items" : "items"));  //FilterPath可优化性能
 
         //FilterPath可优化性能
 
@@ -486,38 +485,30 @@ namespace Wima.Log
         #endregion 状态
     }
 
-    internal class FakeBulkResponse : BulkResponse
+    internal class FakeBulkResponse(bool isValid) : BulkResponse
     {
-        private bool _isValid = false;
-
-        public FakeBulkResponse(bool isValid) => _isValid = isValid;
+        private readonly bool _isValid = isValid;
 
         public override bool IsValid => _isValid;
     }
 
-    internal class FakeCreateResponse : CreateResponse
+    internal class FakeCreateResponse(bool isValid) : CreateResponse
     {
-        private bool _isValid = false;
-
-        public FakeCreateResponse(bool isValid) => _isValid = isValid;
+        private readonly bool _isValid = isValid;
 
         public override bool IsValid => _isValid;
     }
 
-    internal class FakeDeleteDataStreamResponse : DeleteDataStreamResponse
+    internal class FakeDeleteDataStreamResponse(bool isValid) : DeleteDataStreamResponse
     {
-        private bool _isValid = false;
-
-        public FakeDeleteDataStreamResponse(bool isValid) => _isValid = isValid;
+        private readonly bool _isValid = isValid;
 
         public override bool IsValid => _isValid;
     }
 
-    internal class FakeSearchResponse<T> : SearchResponse<T> where T : class
+    internal class FakeSearchResponse<T>(bool isValid) : SearchResponse<T> where T : class
     {
-        private bool _isValid = false;
-
-        public FakeSearchResponse(bool isValid) => _isValid = isValid;
+        private readonly bool _isValid = isValid;
 
         public override bool IsValid => _isValid;
     }
