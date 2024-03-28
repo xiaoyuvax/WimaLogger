@@ -13,6 +13,10 @@
 	<ItemGroup>
 		<FrameworkReference Include="Microsoft.AspNetCore.App" Condition="'$(TargetFramework)'=='net8.0' Or '$(TargetFramework)'=='net7.0'" />
 	</ItemGroup>
+
+	<ItemGroup>
+	  <None Include="Wima - 复制.Log.csproj" />
+	</ItemGroup>
 	<ItemGroup>
 		<PackageReference Include="Common.Logging" Version="3.4.1" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" Condition="'$(TargetFramework)'=='netstandard2.0'" />

@@ -28,6 +28,8 @@ namespace Wima.Log
         public const string INTERNAL_ERROR_STR = "[LogMan Internal Error]";
         public const string LINE_REPLACEMENT_PREFIX = "<< ";
 
+        public static readonly DefaultObjectPool<StringBuilder> StringBuilderPool = new(new StringBuilderPooledObjectPolicy());
+
         /// <summary>
         /// Preserve Period in Hour, 0 = forever
         /// </summary>
@@ -41,7 +43,6 @@ namespace Wima.Log
         private const char INVALID_CHAR_REPLACER = '-';
         private readonly StringBuilder _logBuf = new(DefaultMaxBufferLength);
         private readonly DefaultObjectPool<LogLine> logLinePool = new(new DefaultPooledObjectPolicy<LogLine>());
-        public static readonly DefaultObjectPool<StringBuilder> StringBuilderPool = new(new StringBuilderPooledObjectPolicy());
 
         /// <summary>
         /// For preventing race condition during accessing LogBuf
@@ -73,7 +74,7 @@ namespace Wima.Log
             foreach (char c in Path.GetInvalidFileNameChars()) logName = logName.Replace(c, INVALID_CHAR_REPLACER);
 
             if (LogModes.HasFlag(LogMode.CommonLog))
-                try { _commonLogger = GetLogger(logName); }
+                try { _commonLogger = getExternalLogger(logName); }
                 catch (Exception ex)
                 {
                     LogModes = (GlobalLogMode ^ LogMode.CommonLog) | LogMode.Native;
@@ -244,19 +245,23 @@ namespace Wima.Log
 
         #region Log Actions
 
-        //Expose Actions for FormattedLogExtention
-        public Action<string, Exception> INFO => Info;
-
         public Action<string, Exception> DEBUG => Debug;
-        public Action<string, Exception> WARN => Warn;
 
         public Action<string, Exception> ERROR => Error;
 
         public Action<string, Exception> FATAL => Fatal;
 
+        //Expose Actions for LogExtention
+        public Action<string, Exception> INFO => Info;
+
         public Action<string, Exception> TRACE => Trace;
 
-        public Action<string, Exception, Action<string, Exception>> VERBOSE => Verbose;
+        /// <summary>
+        /// Allow calling chain like LogMan.VERBOSE.WARN() and to work together with any Extention Methods which may format log texts.
+        /// </summary>
+        public WimaLoggerBase VERBOSE => UseVerbose ? this : null;
+
+        public Action<string, Exception> WARN => Warn;
 
         #endregion Log Actions
 
@@ -484,7 +489,7 @@ namespace Wima.Log
             StringBuilderPool.Return(logLineBuilder);
         }
 
-        private static ILog GetLogger(string key) => LogManager.GetLogger(key);
+        private static ILog getExternalLogger(string key) => LogManager.GetLogger(key);
 
         private string GetNextLogPath(DateTime? now = null) => LogRoot + Name + "_" + (now ?? DateTime.Now).ToString(LogFileNameTimeFormat) + ".log";
 
