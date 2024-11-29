@@ -6,7 +6,7 @@ namespace Wima.Log
 {
     public sealed class WimaLoggerProvider : ILoggerProvider
     {
-        private readonly IDisposable? _onChangeToken;
+        private readonly IDisposable _onChangeToken;
         public WimaLoggerConfiguration CurrentConfig { get; private set; }
 
         private readonly ConcurrentDictionary<string, WimaLogger> _loggers = new(StringComparer.OrdinalIgnoreCase);

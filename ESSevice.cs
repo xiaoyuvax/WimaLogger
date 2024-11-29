@@ -380,7 +380,7 @@ namespace Wima.Log
         /// <summary>
         /// 获取文档(这只是一个示例)
         /// </summary>
-        public async Task<ISearchResponse<T>> SearchAsync<T>(string indexName, int startIndex = 0, int? size = null, bool sortDescending = false, string? sortField = null, Func<QueryContainerDescriptor<T>, QueryContainer> query = null, Func<AggregationContainerDescriptor<T>, IAggregationContainer> aggSelector = null) where T : class
+        public async Task<ISearchResponse<T>> SearchAsync<T>(string indexName, int startIndex = 0, int? size = null, bool sortDescending = false, string sortField = null, Func<QueryContainerDescriptor<T>, QueryContainer> query = null, Func<AggregationContainerDescriptor<T>, IAggregationContainer> aggSelector = null) where T : class
         {
             return await Client.SearchAsync<T>(r =>
             {

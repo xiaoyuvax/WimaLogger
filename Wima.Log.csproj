@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<TargetFrameworks>net7.0;net8.0;netstandard2.0</TargetFrameworks>
+		<TargetFramework>net8.0</TargetFramework>
 		<AssemblyVersion>1.7.3.7</AssemblyVersion>
-		<FileVersion>1.7.3.7</FileVersion>		
+		<FileVersion>1.7.3.7</FileVersion>
 		<ImplicitUsings>true</ImplicitUsings>
 		<LangVersion>12</LangVersion>
 		<IsAotCompatible>true</IsAotCompatible>
@@ -12,10 +12,6 @@
 
 	<ItemGroup>
 		<FrameworkReference Include="Microsoft.AspNetCore.App" Condition="'$(TargetFramework)'=='net8.0' Or '$(TargetFramework)'=='net7.0'" />
-	</ItemGroup>
-
-	<ItemGroup>
-	  <None Include="Wima - 复制.Log.csproj" />
 	</ItemGroup>
 	<ItemGroup>
 		<PackageReference Include="Common.Logging" Version="3.4.1" />

@@ -22,27 +22,28 @@ namespace Wima.Log
     public class WimaLoggerBase : AbstractLogger, IDisposable
     {
         public const string DEFAULT_LOGFILE_NAME_TIME_FORMAT = "yyMMdd_HH";
+
         public const string DEFAULT_LOGLINE_TIME_FORMAT = "yy-MM-dd HH:mm:ss";
+
         public const string DEFAULT_LOGROOT_NAME = "logs";
+
         public const char ES_INDEX_SEPARATOR = '-';
+
         public const string INTERNAL_ERROR_STR = "[LogMan Internal Error]";
+
         public const string LINE_REPLACEMENT_PREFIX = "<< ";
 
-        public static readonly DefaultObjectPool<StringBuilder> StringBuilderPool = new(new StringBuilderPooledObjectPolicy());
-
         /// <summary>
-        /// Preserve Period in Hour, 0 = forever
+        /// A default logger who logs nothing
         /// </summary>
-        public static int LogPreservePeriodInHour = 0;
-
-        /// <summary>
-        /// Logfile Renewal Period(in hour)
-        /// </summary>
-        public static int LogRenewalPeriodInHour = 2;
+        public static readonly WimaLoggerBase NullLogger;
 
         private const char INVALID_CHAR_REPLACER = '-';
+        private const int LOGBUFFER_LENGTH = 4096;
+        private static readonly DefaultObjectPool<LogLine> logLinePool = new(new DefaultPooledObjectPolicy<LogLine>());
+        private static readonly DefaultObjectPool<StringBuilder> stringBuilderPool = new(new StringBuilderPooledObjectPolicy());
+
         private readonly StringBuilder _logBuf = new(DefaultMaxBufferLength);
-        private readonly DefaultObjectPool<LogLine> logLinePool = new(new DefaultPooledObjectPolicy<LogLine>());
 
         /// <summary>
         /// For preventing race condition during accessing LogBuf
@@ -66,6 +67,12 @@ namespace Wima.Log
         /// </summary>
         ///
         private string _name;
+
+        static WimaLoggerBase()
+        {
+            //assure Nullogger initialized after all statics.
+            NullLogger = new("_", LogLevel.Off, logMode: LogMode.None);
+        }
 
         public WimaLoggerBase(string logName, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT, LogMode? logMode = null)
         {
@@ -106,11 +113,11 @@ namespace Wima.Log
         }
 
         public WimaLoggerBase(Type type, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT, LogMode? logMode = null)
-                    : this(type.Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat, logMode)
+                                    : this(type.Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat, logMode)
         { }
 
         public WimaLoggerBase(object obj, LogLevel? logLevel = null, bool showLevel = true, bool showDateTime = true, bool showLogName = true, string dateTimeFormat = DEFAULT_LOGLINE_TIME_FORMAT, LogMode? logMode = null)
-                    : this(obj.GetType().Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat, logMode)
+                                    : this(obj.GetType().Name, logLevel, showLevel, showDateTime, showLogName, dateTimeFormat, logMode)
         { }
 
         public static int DefaultMaxBufferLength { get; set; } = 1024 * 64;
@@ -129,7 +136,7 @@ namespace Wima.Log
         /// <summary>
         /// This property evaluates default LogLevel property of new instance.
         /// </summary>
-        public static LogLevel GlobalLogLevel { get; set; } = Common.Logging.LogLevel.All;
+        public static LogLevel GlobalLogLevel { get; set; } = LogLevel.All;
 
         /// <summary>
         /// This property evaluates default LogModes property of new instance.
@@ -140,6 +147,16 @@ namespace Wima.Log
         /// Reggistered loggers
         /// </summary>
         public static ConcurrentDictionary<string, WimaLoggerBase> LogBook { get; set; } = new();
+
+        /// <summary>
+        /// Preserve Period in Hour, 0 = forever
+        /// </summary>
+        public static int LogPreservePeriodInHour { get; set; } = 0;
+
+        /// <summary>
+        /// Logfile Renewal Period(in hour)
+        /// </summary>
+        public static int LogRenewalPeriodInHour { get; set; } = 2;
 
         /// <summary>
         /// Global log root path
@@ -167,10 +184,15 @@ namespace Wima.Log
         public string ESIndexPrefix { get; set; } = "logs" + ES_INDEX_SEPARATOR;
 
         public override bool IsDebugEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Debug);
+
         public override bool IsErrorEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Error);
+
         public override bool IsFatalEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Fatal);
+
         public override bool IsInfoEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Info);
+
         public override bool IsTraceEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Trace);
+
         public override bool IsWarnEnabled => LogLevel == LogLevel.All || LogLevel.HasFlag(LogLevel.Warn);
 
         /// <summary>
@@ -207,15 +229,12 @@ namespace Wima.Log
         public string Name
         {
             get => _name;
-            set
+            protected set
             {
                 var v = value;
-                foreach (char c in invalidUrlChar.Except(new[] { Path.DirectorySeparatorChar })) v = v.Replace(c, '_');
+                foreach (char c in invalidUrlChar.Except([Path.DirectorySeparatorChar])) v = v.Replace(c, '_');
                 _name = v;
-                v = GetESIndexName(_name);   //TODO:因为要到读取配置的时候才会给ES索引名前缀赋值，所以之前初始化的日志的名称可能会有问题。
-
-                foreach (char c in invalidUrlChar) v = v.Replace(c, '_');
-                _esIndexName = v;
+                RefreshEsIndex();
             }
         }
 
@@ -239,31 +258,9 @@ namespace Wima.Log
         /// <summary>
         /// 无效的URL字符
         /// </summary>
-        private static string invalidUrlChar { get; } = new string(Path.GetInvalidFileNameChars()) + new string(Path.GetInvalidPathChars());
+        private static string invalidUrlChar { get; } = new string([.. Path.GetInvalidFileNameChars(), .. Path.GetInvalidPathChars()]);
 
         private ILog _commonLogger { get; set; } = null;
-
-        #region Log Actions
-
-        public Action<string, Exception> DEBUG => Debug;
-
-        public Action<string, Exception> ERROR => Error;
-
-        public Action<string, Exception> FATAL => Fatal;
-
-        //Expose Actions for LogExtention
-        public Action<string, Exception> INFO => Info;
-
-        public Action<string, Exception> TRACE => Trace;
-
-        /// <summary>
-        /// Allow calling chain like LogMan.VERBOSE.WARN() and to work together with any Extention Methods which may format log texts.
-        /// </summary>
-        public WimaLoggerBase VERBOSE => UseVerbose ? this : null;
-
-        public Action<string, Exception> WARN => Warn;
-
-        #endregion Log Actions
 
         /// <summary>
         /// Intialized Shared ElasticSearch Client, which is used by all LogMan instances.
@@ -276,6 +273,14 @@ namespace Wima.Log
                 if (globalIndexPrefix != null) ESGlobalIndexPrefix = globalIndexPrefix + ES_INDEX_SEPARATOR;
                 return (ESService = new ElasticSearchService(config)).Client != null;
             });
+
+        /// <summary>
+        /// This method updates the key in LogBook too
+        /// </summary>
+        /// <param name="oldLogName"></param>
+        /// <param name="newLogName"></param>
+        /// <returns></returns>
+        public static bool Rename(string oldLogName, string newLogName) => LogBook.TryRemove(oldLogName, out WimaLoggerBase l) && LogBook.TryAdd(l.Name = newLogName, l);
 
         /// <summary>
         /// Set LogRoot path to default
@@ -305,6 +310,8 @@ namespace Wima.Log
             if (LogBook.TryRemove(Name, out _)) Info($"LogMan:{Name} Disposed!");
             _logWriter?.Dispose();
             _logWriter = null;
+
+            GC.SuppressFinalize(this);
         }
 
         /// <summary>
@@ -339,6 +346,45 @@ namespace Wima.Log
         /// <returns></returns>
         public string GetESIndexName(string logName) => (ESGlobalIndexPrefix + ESIndexPrefix + logName.Replace(Path.DirectorySeparatorChar, ES_INDEX_SEPARATOR)).ToLower();
 
+        /// <summary>
+        /// Refresh ESIndexName属性
+        /// </summary>
+        public void RefreshEsIndex()
+        {
+            var v = GetESIndexName(_name);   //TODO:因为要到读取配置的时候才会给ES索引名前缀赋值，所以之前初始化的日志的名称可能会有问题。
+            foreach (char c in invalidUrlChar) v = v.Replace(c, '_');
+            _esIndexName = v;
+        }
+
+        /// <summary>
+        /// In order to keep the key for the log consistent, only to rename by using this method.
+        /// </summary>
+        /// <param name="newLogName"></param>
+        /// <returns></returns>
+        public bool Rename(string newLogName) => Rename(Name, newLogName);
+
+        #region Log Actions
+
+        public Action<string, Exception> DEBUG => Debug;
+
+        public Action<string, Exception> ERROR => Error;
+
+        public Action<string, Exception> FATAL => Fatal;
+
+        //Expose Actions for LogExtention
+        public Action<string, Exception> INFO => Info;
+
+        public Action<string, Exception> TRACE => Trace;
+
+        /// <summary>
+        /// Allow calling chain like LogMan.VERBOSE.WARN() and to work together with any Extention Methods which may format log texts.
+        /// </summary>
+        public WimaLoggerBase VERBOSE => UseVerbose ? this : NullLogger;
+
+        public Action<string, Exception> WARN => Warn;
+
+        #endregion Log Actions
+
         public void Trace(object message, Exception ex = null, [CallerMemberName] string caller = null) => base.Trace($"[{caller}]\t{message}", ex);
 
         public void Verbose(string logText, Exception ex = null, Action<string, Exception> logAction = null)
@@ -351,7 +397,7 @@ namespace Wima.Log
         protected override void WriteInternal(LogLevel level, object message, Exception ex)
         {
             //multiple threads cannot share the same logLineBuilder, so it has to be Get() from stringBuilderPool and Return() before exit the procedure.
-            StringBuilder logLineBuilder = StringBuilderPool.Get();
+            StringBuilder logLineBuilder = stringBuilderPool.Get();
             if (ShowDateTime) logLineBuilder.Append(DateTime.Now.ToString(DateTimeFormat));
             if (ShowLevel)
             {
@@ -376,7 +422,7 @@ namespace Wima.Log
 
             if (LogModes.HasFlag(LogMode.StackTrace))
             {
-                stackChain = StringBuilderPool.Get();
+                stackChain = stringBuilderPool.Get();
                 stackChain.Append(" <- ");
                 stackChain.Append(string.Join("/", new System.Diagnostics.StackTrace().GetFrames()
                     .Select(i => i.ToString())  //use StackFrame.ToString() to be native-aot compatible
@@ -391,7 +437,7 @@ namespace Wima.Log
             //Update LogBuf:Cut tail and process Replacement Mark "<<" in _logBuf
             lock (syncLogBuf)
             {
-                if (_logBuf.Length > DefaultMaxBufferLength) _logBuf.Remove(DefaultMaxBufferLength - 4096, 4096);
+                if (_logBuf.Length > DefaultMaxBufferLength) _logBuf.Remove(DefaultMaxBufferLength - LOGBUFFER_LENGTH, LOGBUFFER_LENGTH);
 
                 int _firstNL;
                 if (_logLine.Contains(LINE_REPLACEMENT_PREFIX) && (_firstNL = _logBuf.ToString().IndexOf(Environment.NewLine)) > 0)
@@ -485,8 +531,8 @@ namespace Wima.Log
 
             //Return StringBuilder instance
             //has to explicitly do null check before Return(), see https://github.com/dotnet/aspnetcore/issues/52873#issuecomment-1865443129
-            if (stackChain != null) StringBuilderPool.Return(stackChain);
-            StringBuilderPool.Return(logLineBuilder);
+            if (stackChain != null) stringBuilderPool.Return(stackChain);
+            stringBuilderPool.Return(logLineBuilder);
         }
 
         private static ILog getExternalLogger(string key) => LogManager.GetLogger(key);

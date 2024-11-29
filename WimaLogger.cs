@@ -3,7 +3,7 @@ using CM = Common.Logging;
 
 namespace Wima.Log
 {
-    public sealed class WimaLogger : WimaLoggerBase, ILogger
+    public class WimaLogger : WimaLoggerBase, ILogger
     {
         public WimaLogger(Type t) : base(t) { }
 
