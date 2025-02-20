@@ -1,24 +1,45 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<TargetFramework>net8.0</TargetFramework>
-		<AssemblyVersion>1.7.3.7</AssemblyVersion>
-		<FileVersion>1.7.3.7</FileVersion>
+		<TargetFrameworks>net9.0;netstandard2.0</TargetFrameworks>
+		<AssemblyVersion>1.8.1.0</AssemblyVersion>
+		<FileVersion>1.8.1.0</FileVersion>
 		<ImplicitUsings>true</ImplicitUsings>
 		<LangVersion>12</LangVersion>
-		<IsAotCompatible>true</IsAotCompatible>
-		<TrimmerRootAssembly>$(AssemblyName)</TrimmerRootAssembly>
-		<EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+		<PackageOutputPath>d:\pub\nuget packages</PackageOutputPath>
+		<Version>1.8.1.0</Version>
+		<Description>A lightweighted independent logger compatible with CommonLog/兼容CommonLog接口的轻量级独立日志系统</Description>
+		<Authors>Xiaoyuvax</Authors>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageLicenseFile>LICENSE</PackageLicenseFile>
 	</PropertyGroup>
 
-	<ItemGroup>
-		<FrameworkReference Include="Microsoft.AspNetCore.App" Condition="'$(TargetFramework)'=='net8.0' Or '$(TargetFramework)'=='net7.0'" />
+	<PropertyGroup Condition="'$(TargetFramework)'!='netstandard2.0'">
+		<TrimmerRootAssembly>$(AssemblyName)</TrimmerRootAssembly>
+		<EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+		<IsAotCompatible>true</IsAotCompatible>
+	</PropertyGroup>
+
+	<ItemGroup Condition="'$(TargetFramework)'!='netstandard2.0'">
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
 	</ItemGroup>
+
 	<ItemGroup>
 		<PackageReference Include="Common.Logging" Version="3.4.1" />
-		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" Condition="'$(TargetFramework)'=='netstandard2.0'" />
-		<PackageReference Include="Microsoft.Extensions.Logging.Configuration" Version="8.0.0" Condition="'$(TargetFramework)'=='netstandard2.0'" />
-		<PackageReference Include="Microsoft.Extensions.ObjectPool" Version="8.0.0" Condition="'$(TargetFramework)'=='netstandard2.0'" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.2" Condition="'$(TargetFramework)'=='netstandard2.0'" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Configuration" Version="9.0.2" Condition="'$(TargetFramework)'=='netstandard2.0'" />
+		<PackageReference Include="Microsoft.Extensions.ObjectPool" Version="9.0.2" Condition="'$(TargetFramework)'=='netstandard2.0'" />
 		<PackageReference Include="NEST" Version="7.17.5" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <None Update="LICENSE">
+	    <Pack>True</Pack>
+	    <PackagePath>\</PackagePath>
+	  </None>
+	  <None Update="README.md">
+	    <Pack>True</Pack>
+	    <PackagePath>\</PackagePath>
+	  </None>
 	</ItemGroup>
 
 

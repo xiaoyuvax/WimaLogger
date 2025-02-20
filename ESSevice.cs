@@ -1,15 +1,18 @@
-﻿using Elasticsearch.Net;
+﻿using System.Collections.Concurrent;
 using Microsoft.Extensions.Options;
+using Elasticsearch.Net;
 using Nest;
-using System.Collections.Concurrent;
 
 #if !BFLAT
+
 namespace System.Runtime.CompilerServices
 {
     //This is a small bug in Visual Studio 2019 that hasn't been fixed yet. To solve this, you need to add a dummy class named IsExternalInit with the namespace System.Runtime.CompilerServices anywhere in your project.
     //If writing a library it's best to make this class internal, as otherwise you can end up with two libraries both defining the same type.
-    internal static class IsExternalInit { }
+    internal static class IsExternalInit
+    { }
 }
+
 #endif
 
 namespace Wima.Log
@@ -31,9 +34,9 @@ namespace Wima.Log
     /// </summary>
     public sealed partial class ElasticSearchService : IDisposable
     {
-        public const string TimeFormat = "HH:mm:ss";
-        private const int PingPeriodInMs = 60000;
-        private readonly ConcurrentDictionary<string, DateTime> _indexCache = new();
+        public const string TIME_FORMAT = "HH:mm:ss";
+        private const int PING_PERIOD_IN_MS = 60000;
+        private readonly ConcurrentDictionary<string, DateTime> _indexCache = [];
         private readonly WimaLogger LogMan = new(typeof(ElasticSearchService));
         private CancellationTokenSource pingCancellationTokenSource;
 
@@ -48,7 +51,7 @@ namespace Wima.Log
 
         public ESConfig Config { get; private set; }
         public bool IsDisposed { get; private set; }
-        public bool IsOnline => (DateTime.Now - LastPingTime).TotalMilliseconds < PingPeriodInMs * 2;
+        public bool IsOnline => (DateTime.Now - LastPingTime).TotalMilliseconds < PING_PERIOD_IN_MS * 2;
 
         /// <summary>
         /// 索引本地缓存的最大时间，超时则清理
@@ -86,7 +89,7 @@ namespace Wima.Log
                 while (!tokenSource.IsCancellationRequested)
                 {
                     Ping().Wait();
-                    Thread.Sleep(PingPeriodInMs);
+                    Thread.Sleep(PING_PERIOD_IN_MS);
                 }
                 LogMan.Info($"[ESSvc]\tPing线程({tokenSource.GetHashCode()})退出！");
             }, pingCancellationTokenSource.Token);
@@ -223,17 +226,18 @@ namespace Wima.Log
             .Query(q =>
             {
                 return q.DateRange(d =>
-              {
-                  var r = d.Field("@timestamp");
-                  if (startTime != default) r.GreaterThanOrEquals(startTime);
-                  if (endTime != default) r.LessThanOrEquals(endTime);
-                  return r;
-              })
+                {
+                    var r = d.Field("@timestamp");
+                    if (startTime != default) r.GreaterThanOrEquals(startTime);
+                    if (endTime != default) r.LessThanOrEquals(endTime);
+                    return r;
+                })
                 //+ q.Bool(i=> i.Filter() )
                 ;
             })
-            );
+                                              );
         }
+
         /// <summary>
         /// 创建文档。会先检查索引是否存在，然后再创建。
         /// </summary>
@@ -263,15 +267,15 @@ namespace Wima.Log
             try
             {
                 if (ExistsIndex(indexName).Result) response = Client.BulkAll(docs, t1 => t1.Index(indexName)
-                       .BackOffRetries(20)
-                       .BackOffTime("10s")
-                       .BackPressure(1, 2)
-                       .MaxDegreeOfParallelism(Environment.ProcessorCount)
-                       .RefreshOnCompleted()
-                       .DroppedDocumentCallback((bulkResponseItem, doc) => droppedDocCallBack?.Invoke(bulkResponseItem, doc)
-                       )
-                       .Size(size)
-                      );
+                    .BackOffRetries(20)
+                        .BackOffTime("10s")
+                        .BackPressure(1, 2)
+                        .MaxDegreeOfParallelism(Environment.ProcessorCount)
+                        .RefreshOnCompleted()
+                        .DroppedDocumentCallback((bulkResponseItem, doc) => droppedDocCallBack?.Invoke(bulkResponseItem, doc)
+                                                )
+                        .Size(size)
+                                                                            );
             }
             catch (Exception ex)
             {
@@ -470,7 +474,7 @@ namespace Wima.Log
 
         public async void GetESInfoAsync() => ClusterInfo = await Client?.RootNodeInfoAsync().ContinueWith(i => i.Result.IsValid ?
                                                         $"节点地址：{Config.Urls}\r\n节点名：{i.Result.Name}\r\n集群名：{i.Result.ClusterName}\r\n版本：{i.Result.Version.Number}\r\n"
-                                                : null) ?? "...";
+                                                  : null) ?? "...";
 
         /// <summary>
         /// Ping ElasticSearch
